@@ -1,6 +1,6 @@
 import { i as __toESM } from "../_runtime.mjs";
 import { G as require_jsx_runtime, K as require_react } from "../_libs/@tanstack/react-router+[...].mjs";
-//#region node_modules/.nitro/vite/services/ssr/assets/routes-CYv2PFtr.js
+//#region node_modules/.nitro/vite/services/ssr/assets/routes-e_w7dEVT.js
 var import_react = /* @__PURE__ */ __toESM(require_react());
 var import_jsx_runtime = require_jsx_runtime();
 var __defProp = Object.defineProperty;
@@ -48,8 +48,15 @@ var SEMANTIC_TH = {
 	WORK: "ที่ทำงาน",
 	INFERRED_HOME: "บ้าน",
 	INFERRED_WORK: "ที่ทำงาน",
-	SEARCHED_ADDRESS: "สถานที่ที่ค้นหา"
+	TYPE_HOME: "บ้าน",
+	TYPE_WORK: "ที่ทำงาน",
+	SEARCHED: "สถานที่ที่ค้นหา",
+	SEARCHED_ADDRESS: "สถานที่ที่ค้นหา",
+	TYPE_SEARCHED_ADDRESS: "สถานที่ที่ค้นหา"
 };
+function semanticLabel(raw) {
+	return SEMANTIC_TH[raw.trim().toUpperCase().replace(/[\s-]+/g, "_")] || "";
+}
 var DEFAULTS = {
 	lat: "",
 	lng: "",
@@ -234,40 +241,60 @@ function pickStr(...vals) {
 	}
 	return "";
 }
-function encodeMeta(name, address, semantic) {
+function textOf(v) {
+	if (typeof v === "string") return pickStr(v);
+	const o = asRecord(v);
+	if (!o) return "";
+	return pickStr(o.text, o.value, o.name);
+}
+function pickId(...vals) {
+	for (const v of vals) if (typeof v === "string") {
+		const t = v.trim();
+		if (t.startsWith("ChIJ") || t.startsWith("GhIJ")) return t;
+	}
+	return "";
+}
+function encodeMeta(name, address, semantic, placeId = "") {
 	return [
 		name,
 		address,
-		semantic
+		semantic,
+		placeId
 	].join("");
 }
 function decodeMeta(raw) {
-	const [name = "", address = "", semantic = ""] = (raw || "").split("");
+	const [name = "", address = "", semantic = "", placeId = ""] = (raw || "").split("");
 	return {
 		name,
 		address,
-		semantic
+		semantic,
+		placeId
 	};
 }
 function metaFromVisit(node, loc) {
 	const pools = [
 		asRecord(node.topCandidate) || asRecord(node.location) || asRecord(loc),
 		asRecord(node.location),
-		asRecord(loc)
+		asRecord(loc),
+		asRecord(node.placeLocation)
 	];
 	if (Array.isArray(node.otherCandidate)) pools.push(...node.otherCandidate.map(asRecord));
 	if (Array.isArray(node.otherCandidates)) pools.push(...node.otherCandidates.map(asRecord));
 	let name = "";
 	let address = "";
 	let semantic = "";
+	let placeId = "";
 	for (const p of pools) {
 		if (!p) continue;
-		if (!name) name = pickStr(p.name, p.placeName, p.candidateName);
-		if (!address) address = pickStr(p.address, p.formattedAddress);
+		const placeLoc = asRecord(p.placeLocation);
+		if (!name) name = pickStr(p.name, p.placeName, p.candidateName, textOf(p.displayName), placeLoc?.name, textOf(placeLoc?.displayName));
+		if (!address) address = pickStr(p.address, p.formattedAddress, p.formatted_address, placeLoc?.address);
 		if (!semantic && typeof p.semanticType === "string") semantic = p.semanticType;
+		if (!placeId) placeId = pickId(p.placeId, p.placeID, p.place_id, placeLoc?.placeId, placeLoc?.placeID);
 	}
 	if (!semantic && typeof node.semanticType === "string") semantic = node.semanticType;
-	return encodeMeta(name, address, semantic);
+	if (!placeId) placeId = pickId(node.placeId, node.placeID);
+	return encodeMeta(name, address, semantic, placeId);
 }
 function extract(data) {
 	const visits = [];
@@ -528,12 +555,29 @@ function lowerBound(samples, t) {
 	}
 	return lo;
 }
+function shortAddress(address) {
+	const clean = address.replace(/\s+/g, " ").trim();
+	if (!clean) return "";
+	const part = clean.split(",")[0]?.trim() || clean;
+	return part.length > 48 ? `${part.slice(0, 48)}…` : part;
+}
+function mapsHref(lat, lng, placeId = "") {
+	const q = `${lat.toFixed(6)},${lng.toFixed(6)}`;
+	const base = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(q)}`;
+	return placeId ? `${base}&query_place_id=${encodeURIComponent(placeId)}` : base;
+}
 function placeTitle(meta, atPump) {
-	if (atPump && !meta.name) return "ปั๊มน้ำมัน";
+	if (atPump && !meta.name && !meta.address) return "ปั๊มน้ำมัน";
 	if (meta.name) return meta.name;
-	const sem = SEMANTIC_TH[meta.semantic];
+	const sem = semanticLabel(meta.semantic);
 	if (sem) return sem;
+	const addr = shortAddress(meta.address);
+	if (addr) return addr;
 	return atPump ? "ปั๊มน้ำมัน" : "สถานที่ไม่มีชื่อ";
+}
+var GENERIC_TITLES = /* @__PURE__ */ new Set(["สถานที่ไม่มีชื่อ", "จุดที่อยู่กับที่"]);
+function stopNeedsName(title) {
+	return GENERIC_TITLES.has(title);
 }
 function dayStops(store, key, cfg) {
 	const [day0, day1] = dayBounds(key);
@@ -552,8 +596,9 @@ function dayStops(store, key, cfg) {
 		const meta = decodeMeta(store.visitMeta[i / 4]);
 		const meters = station ? haversine(station.lat, station.lng, lat, lng) : null;
 		const atPump = meters != null && meters <= station.radius;
-		const sem = SEMANTIC_TH[meta.semantic];
-		const detailParts = [meta.address, meta.name && sem ? sem : ""].filter(Boolean);
+		const sem = semanticLabel(meta.semantic);
+		const detailParts = [meta.address, meta.name && sem && meta.name !== sem ? sem : ""].filter(Boolean);
+		if (!detailParts.length) detailParts.push(`${lat.toFixed(5)}, ${lng.toFixed(5)}`);
 		stops.push({
 			s: cs,
 			e: ce,
@@ -563,7 +608,9 @@ function dayStops(store, key, cfg) {
 			detail: detailParts.join(" · "),
 			atPump,
 			meters,
-			source: "visit"
+			source: "visit",
+			placeId: meta.placeId,
+			mapsUrl: mapsHref(lat, lng, meta.placeId)
 		});
 	}
 	const clusters = [];
@@ -623,7 +670,9 @@ function dayStops(store, key, cfg) {
 			detail: `${lat.toFixed(5)}, ${lng.toFixed(5)}`,
 			atPump,
 			meters,
-			source: "gps"
+			source: "gps",
+			placeId: "",
+			mapsUrl: mapsHref(lat, lng)
 		});
 	}
 	stops.sort((a, b) => a.s - b.s);
@@ -635,6 +684,88 @@ function dayStops(store, key, cfg) {
 		else merged.push({ ...s });
 	}
 	return merged;
+}
+var GEO_KEY = "wp-place-names";
+function geoKey(lat, lng) {
+	return `${lat.toFixed(4)},${lng.toFixed(4)}`;
+}
+function readGeoCache() {
+	try {
+		const raw = JSON.parse(localStorage.getItem(GEO_KEY) || "{}");
+		if (!raw || typeof raw !== "object") return {};
+		return raw;
+	} catch {
+		return {};
+	}
+}
+function labelFromPhoton(data) {
+	const root = asRecord(data);
+	const props = asRecord(asRecord((root && Array.isArray(root.features) ? root.features : [])[0])?.properties);
+	if (!props) return "";
+	const parts = [
+		props.name,
+		props.street,
+		props.district,
+		props.city
+	].map((v) => typeof v === "string" ? v.trim() : "").filter(Boolean);
+	return [...new Set(parts)].slice(0, 2).join(" · ");
+}
+function labelFromLocality(data) {
+	const o = asRecord(data);
+	if (!o) return "";
+	const info = asRecord(o.localityInfo);
+	const hit = (Array.isArray(info?.informative) ? info.informative : []).map(asRecord).filter((row) => !!row && typeof row.name === "string").sort((a, b) => Number(b.order || 0) - Number(a.order || 0)).find((row) => !/ประเทศ|country|ทวีป|continent/i.test(`${row.description || ""} ${row.name}`));
+	const name = typeof hit?.name === "string" ? hit.name : "";
+	const city = typeof o.city === "string" ? o.city : typeof o.locality === "string" ? o.locality : "";
+	if (name && city && city !== name) return `${name} · ${city}`;
+	return name || city || (typeof o.principalSubdivision === "string" ? o.principalSubdivision : "");
+}
+async function reverseName(lat, lng) {
+	const ctrl = new AbortController();
+	const timer = setTimeout(() => ctrl.abort(), 7e3);
+	try {
+		const photon = await fetch(`https://photon.komoot.io/reverse?lat=${lat}&lon=${lng}&lang=th`, { signal: ctrl.signal });
+		if (photon.ok) {
+			const label = labelFromPhoton(await photon.json());
+			if (label) return label;
+		}
+	} catch {} finally {
+		clearTimeout(timer);
+	}
+	try {
+		const res = await fetch(`https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=${lat}&longitude=${lng}&localityLanguage=th`);
+		if (!res.ok) return "";
+		return labelFromLocality(await res.json());
+	} catch {
+		return "";
+	}
+}
+/** เติมชื่อสถานที่เมื่อไฟล์ Timeline ไม่มีชื่อ แต่มีพิกัด */
+async function enrichStops(stops) {
+	const cache = readGeoCache();
+	const next = stops.map((s) => ({ ...s }));
+	let dirty = false;
+	for (const stop of next) {
+		if (!stopNeedsName(stop.title)) continue;
+		const key = geoKey(stop.lat, stop.lng);
+		let name = cache[key] || "";
+		if (!name) {
+			name = await reverseName(stop.lat, stop.lng);
+			if (name) {
+				cache[key] = name;
+				dirty = true;
+			}
+		}
+		if (name) stop.title = name;
+	}
+	if (dirty) {
+		const keys = Object.keys(cache);
+		const trimmed = keys.length > 500 ? Object.fromEntries(keys.slice(-400).map((k) => [k, cache[k]])) : cache;
+		try {
+			localStorage.setItem(GEO_KEY, JSON.stringify(trimmed));
+		} catch {}
+	}
+	return next;
 }
 function overlap(a0, a1, b0, b1) {
 	return Math.max(0, Math.min(a1, b1) - Math.max(a0, b0));
@@ -877,6 +1008,10 @@ function WorkApp() {
 	const [exporting, setExporting] = (0, import_react.useState)(false);
 	const [jump, setJump] = (0, import_react.useState)("");
 	const [query, setQuery] = (0, import_react.useState)("");
+	const [installEvt, setInstallEvt] = (0, import_react.useState)(null);
+	const [standalone, setStandalone] = (0, import_react.useState)(false);
+	const [stops, setStops] = (0, import_react.useState)([]);
+	const [naming, setNaming] = (0, import_react.useState)(false);
 	const toastTimer = (0, import_react.useRef)(0);
 	const mapEl = (0, import_react.useRef)(null);
 	const mapHandle = (0, import_react.useRef)(null);
@@ -891,7 +1026,19 @@ function WorkApp() {
 		setToastMsg(msg);
 		setToastOn(true);
 		window.clearTimeout(toastTimer.current);
-		toastTimer.current = window.setTimeout(() => setToastOn(false), 2400);
+		toastTimer.current = window.setTimeout(() => setToastOn(false), 2800);
+	}
+	async function installApp() {
+		if (installEvt) {
+			await installEvt.prompt();
+			if ((await installEvt.userChoice).outcome === "accepted") {
+				setInstallEvt(null);
+				setStandalone(true);
+				toast("ติดตั้งแล้ว ไอคอนปฏิทินอยู่ที่หน้าจอหลัก");
+			}
+			return;
+		}
+		toast(/iphone|ipad|ipod/i.test(navigator.userAgent) ? "บน iPhone กดแชร์ แล้วเลือก เพิ่มไปยังหน้าจอโฮม" : "เปิดเมนู Chrome ⋮ แล้วเลือก ติดตั้งแอป");
 	}
 	(0, import_react.useEffect)(() => {
 		let dead = false;
@@ -932,6 +1079,28 @@ function WorkApp() {
 		document.documentElement.dataset.theme = cfg.theme;
 		document.querySelector("meta[name=\"theme-color\"]")?.setAttribute("content", cfg.theme === "dark" ? "#070c18" : "#e7eef8");
 	}, [cfg.theme]);
+	(0, import_react.useEffect)(() => {
+		const media = window.matchMedia("(display-mode: standalone)");
+		const sync = () => {
+			setStandalone(media.matches || navigator.standalone === true);
+		};
+		sync();
+		media.addEventListener("change", sync);
+		const onPrompt = (event) => {
+			event.preventDefault();
+			setInstallEvt(event);
+		};
+		window.addEventListener("beforeinstallprompt", onPrompt);
+		if ("serviceWorker" in navigator) {
+			const worker = new URL("sw.js", document.baseURI);
+			const scope = new URL("./", document.baseURI);
+			navigator.serviceWorker.register(worker.href, { scope: scope.href }).catch(() => {});
+		}
+		return () => {
+			media.removeEventListener("change", sync);
+			window.removeEventListener("beforeinstallprompt", onPrompt);
+		};
+	}, []);
 	(0, import_react.useEffect)(() => {
 		if (sheet !== "set") return;
 		let dead = false;
@@ -1116,7 +1285,7 @@ function WorkApp() {
 		if (!store) return;
 		setExporting(true);
 		try {
-			const { workbookBlob } = await import("./excel-export-D2SuA6JK.mjs");
+			const { workbookBlob } = await import("./excel-export-MkFnxoJm.mjs");
 			const blob = await workbookBlob(store, days, cfg);
 			const a = document.createElement("a");
 			const stamp = ymd(/* @__PURE__ */ new Date());
@@ -1145,11 +1314,28 @@ function WorkApp() {
 	const todayKey = ymd(/* @__PURE__ */ new Date());
 	const showEmpty = booted && (!store || cfg.lat === "");
 	const activeInfo = selected ? dayInfo(selected, days, store, cfg) : null;
-	const stops = (0, import_react.useMemo)(() => store && selected ? dayStops(store, selected, cfg) : [], [
+	const rawStops = (0, import_react.useMemo)(() => store && selected ? dayStops(store, selected, cfg) : [], [
 		store,
 		selected,
 		cfg
 	]);
+	(0, import_react.useEffect)(() => {
+		let dead = false;
+		setStops(rawStops);
+		if (!rawStops.some((stop) => stopNeedsName(stop.title))) {
+			setNaming(false);
+			return;
+		}
+		setNaming(true);
+		enrichStops(rawStops).then((next) => {
+			if (dead) return;
+			setStops(next);
+			setNaming(false);
+		});
+		return () => {
+			dead = true;
+		};
+	}, [rawStops]);
 	const cells = [];
 	for (let i = 0; i < startPad; i++) cells.push({ blank: true });
 	for (let d = 1; d <= dim; d++) {
@@ -1206,6 +1392,8 @@ function WorkApp() {
 		}),
 		/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("main", {
 			className: "app",
+			"aria-hidden": sheet ? true : void 0,
+			style: sheet ? { visibility: "hidden" } : void 0,
 			children: [
 				/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("header", {
 					className: "top",
@@ -1237,36 +1425,45 @@ function WorkApp() {
 						})]
 					}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 						className: "top-btns",
-						children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
-							type: "button",
-							className: "pill",
-							onClick: () => {
-								const t = /* @__PURE__ */ new Date();
-								setView(new Date(t.getFullYear(), t.getMonth(), 1));
-								setSelected(ymd(t));
-							},
-							children: "วันนี้"
-						}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
-							type: "button",
-							className: "icon-btn",
-							"aria-label": "ตั้งค่า",
-							onClick: () => setSheet("set"),
-							children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("svg", {
-								viewBox: "0 0 24 24",
-								width: "21",
-								height: "21",
-								fill: "none",
-								stroke: "currentColor",
-								strokeWidth: "1.9",
-								strokeLinecap: "round",
-								strokeLinejoin: "round",
-								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("circle", {
-									cx: "12",
-									cy: "12",
-									r: "3.2"
-								}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("path", { d: "M19.4 15a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-1.87-.34 1.7 1.7 0 0 0-1.03 1.56V21a2 2 0 1 1-4 0v-.09A1.7 1.7 0 0 0 9 19.4a1.7 1.7 0 0 0-1.87.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-1.56-1.03H3a2 2 0 1 1 0-4h.09A1.7 1.7 0 0 0 4.6 9a1.7 1.7 0 0 0-.34-1.87l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.7 1.7 0 0 0 9 4.6a1.7 1.7 0 0 0 1.03-1.56V3a2 2 0 1 1 4 0v.09A1.7 1.7 0 0 0 15 4.6a1.7 1.7 0 0 0 1.87-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.7 1.7 0 0 0 19.4 9c.27.63.88 1.03 1.56 1.03H21a2 2 0 1 1 0 4h-.09A1.7 1.7 0 0 0 19.4 15z" })]
+						children: [
+							installEvt && !standalone && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+								type: "button",
+								className: "pill",
+								onClick: () => void installApp(),
+								children: "ติดตั้ง"
+							}),
+							/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+								type: "button",
+								className: "pill",
+								onClick: () => {
+									const t = /* @__PURE__ */ new Date();
+									setView(new Date(t.getFullYear(), t.getMonth(), 1));
+									setSelected(ymd(t));
+								},
+								children: "วันนี้"
+							}),
+							/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+								type: "button",
+								className: "icon-btn",
+								"aria-label": "ตั้งค่า",
+								onClick: () => setSheet("set"),
+								children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("svg", {
+									viewBox: "0 0 24 24",
+									width: "21",
+									height: "21",
+									fill: "none",
+									stroke: "currentColor",
+									strokeWidth: "1.9",
+									strokeLinecap: "round",
+									strokeLinejoin: "round",
+									children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("circle", {
+										cx: "12",
+										cy: "12",
+										r: "3.2"
+									}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("path", { d: "M19.4 15a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-1.87-.34 1.7 1.7 0 0 0-1.03 1.56V21a2 2 0 1 1-4 0v-.09A1.7 1.7 0 0 0 9 19.4a1.7 1.7 0 0 0-1.87.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-1.56-1.03H3a2 2 0 1 1 0-4h.09A1.7 1.7 0 0 0 4.6 9a1.7 1.7 0 0 0-.34-1.87l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.7 1.7 0 0 0 9 4.6a1.7 1.7 0 0 0 1.03-1.56V3a2 2 0 1 1 4 0v.09A1.7 1.7 0 0 0 15 4.6a1.7 1.7 0 0 0 1.87-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.7 1.7 0 0 0 19.4 9c.27.63.88 1.03 1.56 1.03H21a2 2 0 1 1 0 4h-.09A1.7 1.7 0 0 0 19.4 15z" })]
+								})
 							})
-						})]
+						]
 					})]
 				}),
 				/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
@@ -1522,7 +1719,10 @@ function WorkApp() {
 									})
 								]
 							}),
-							(activeInfo.kind === "partial" || activeInfo.kind === "absent") && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Itinerary, { stops }),
+							(activeInfo.kind === "partial" || activeInfo.kind === "absent") && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Itinerary, {
+								stops,
+								naming
+							}),
 							SHIFTS.map((sh) => {
 								const s = activeInfo.shifts[sh.key];
 								const badge = shiftBadge(sh.key, activeInfo);
@@ -1563,7 +1763,10 @@ function WorkApp() {
 									]
 								}, sh.key);
 							}),
-							activeInfo.kind !== "partial" && activeInfo.kind !== "absent" && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Itinerary, { stops }),
+							activeInfo.kind !== "partial" && activeInfo.kind !== "absent" && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Itinerary, {
+								stops,
+								naming
+							}),
 							/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("p", {
 								className: "day-note",
 								children: [
@@ -1616,6 +1819,19 @@ function WorkApp() {
 					/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 						className: "panel-body",
 						children: [
+							!standalone && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("section", {
+								className: "box install-card",
+								children: [
+									/* @__PURE__ */ (0, import_jsx_runtime.jsx)("b", { children: "ติดตั้งเป็นแอป" }),
+									/* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { children: "เปิดลิงก์นี้ใน Chrome บนมือถือ แล้วกดติดตั้ง ไอคอนปฏิทินจะอยู่ที่หน้าจอหลัก และเปิดได้แบบแอป" }),
+									/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+										type: "button",
+										className: "primary",
+										onClick: () => void installApp(),
+										children: "ติดตั้งแอป"
+									})
+								]
+							}),
 							/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("section", {
 								className: "box",
 								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("h3", { children: "ไฟล์ Timeline" }), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", {
@@ -1898,7 +2114,7 @@ function WorkApp() {
 		})
 	] });
 }
-function Itinerary({ stops }) {
+function Itinerary({ stops, naming }) {
 	if (!stops.length) return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
 		className: "day-note",
 		children: "ไม่พบจุดแวะในไฟล์ของวันนี้"
@@ -1906,29 +2122,43 @@ function Itinerary({ stops }) {
 	const away = stops.filter((s) => !s.atPump).length;
 	return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("section", {
 		className: "itin",
-		children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("h3", { children: ["ไปที่ไหนบ้าง ", /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("small", { children: [
-			stops.length,
-			" จุด",
-			away ? ` · นอกปั๊ม ${away}` : ""
-		] })] }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("ol", { children: stops.map((s, i) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("li", {
-			className: s.atPump ? "at" : "",
-			children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("i", {}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
-				/* @__PURE__ */ (0, import_jsx_runtime.jsx)("b", { children: s.title }),
-				/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { children: [
-					hm(s.s),
-					" – ",
-					hm(s.e),
-					" · ",
-					fmtDur(s.e - s.s)
-				] }),
-				s.detail ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("small", { children: s.detail }) : null,
-				/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("em", { children: [
-					s.atPump ? "อยู่ในรัศมีปั๊ม" : "นอกจุดทำงาน",
-					s.meters != null ? ` · ${fmtMeters(s.meters)}` : "",
-					s.source === "gps" ? " · ประมาณจากพิกัด" : ""
-				] })
-			] })]
-		}, `${s.s}-${s.title}-${i}`)) })]
+		children: [
+			/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("h3", { children: ["ไปที่ไหนบ้าง ", /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("small", { children: [
+				stops.length,
+				" จุด",
+				away ? ` · นอกปั๊ม ${away}` : ""
+			] })] }),
+			naming && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+				className: "day-note",
+				children: "กำลังอ่านชื่อสถานที่จากพิกัดในไฟล์ Timeline…"
+			}),
+			/* @__PURE__ */ (0, import_jsx_runtime.jsx)("ol", { children: stops.map((s, i) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("li", {
+				className: s.atPump ? "at" : "",
+				children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("i", {}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
+					/* @__PURE__ */ (0, import_jsx_runtime.jsx)("b", { children: s.title }),
+					/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { children: [
+						hm(s.s),
+						" – ",
+						hm(s.e),
+						" · ",
+						fmtDur(s.e - s.s)
+					] }),
+					s.detail ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("small", { children: s.detail }) : null,
+					/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("em", { children: [
+						s.atPump ? "อยู่ในรัศมีปั๊ม" : "นอกจุดทำงาน",
+						s.meters != null ? ` · ${fmtMeters(s.meters)}` : "",
+						s.source === "gps" ? " · ประมาณจากพิกัด" : ""
+					] }),
+					/* @__PURE__ */ (0, import_jsx_runtime.jsx)("a", {
+						className: "maplink",
+						href: s.mapsUrl,
+						target: "_blank",
+						rel: "noreferrer",
+						children: "เปิดใน Google Maps"
+					})
+				] })]
+			}, `${s.s}-${s.title}-${i}`)) })
+		]
 	});
 }
 var routes_exports = /* @__PURE__ */ __exportAll({ component: () => SplitComponent });

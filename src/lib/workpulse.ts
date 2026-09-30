@@ -19,8 +19,17 @@ const SEMANTIC_TH: Record<string, string> = {
   WORK: "ที่ทำงาน",
   INFERRED_HOME: "บ้าน",
   INFERRED_WORK: "ที่ทำงาน",
+  TYPE_HOME: "บ้าน",
+  TYPE_WORK: "ที่ทำงาน",
+  SEARCHED: "สถานที่ที่ค้นหา",
   SEARCHED_ADDRESS: "สถานที่ที่ค้นหา",
+  TYPE_SEARCHED_ADDRESS: "สถานที่ที่ค้นหา",
 };
+
+function semanticLabel(raw: string) {
+  const key = raw.trim().toUpperCase().replace(/[\s-]+/g, "_");
+  return SEMANTIC_TH[key] || "";
+}
 
 export type Cfg = {
   lat: string;
@@ -78,6 +87,8 @@ export type Stop = {
   atPump: boolean;
   meters: number | null;
   source: "visit" | "gps";
+  placeId: string;
+  mapsUrl: string;
 };
 
 const LS = "workpulse-v3";
@@ -243,31 +254,61 @@ function pickStr(...vals: unknown[]): string {
   return "";
 }
 
-function encodeMeta(name: string, address: string, semantic: string) {
-  return [name, address, semantic].join("\u0001");
+function textOf(v: unknown): string {
+  if (typeof v === "string") return pickStr(v);
+  const o = asRecord(v);
+  if (!o) return "";
+  return pickStr(o.text, o.value, o.name);
+}
+
+function pickId(...vals: unknown[]): string {
+  for (const v of vals) {
+    if (typeof v === "string") {
+      const t = v.trim();
+      if (t.startsWith("ChIJ") || t.startsWith("GhIJ")) return t;
+    }
+  }
+  return "";
+}
+
+function encodeMeta(name: string, address: string, semantic: string, placeId = "") {
+  return [name, address, semantic, placeId].join("\u0001");
 }
 
 export function decodeMeta(raw: string | undefined) {
-  const [name = "", address = "", semantic = ""] = (raw || "").split("\u0001");
-  return { name, address, semantic };
+  const [name = "", address = "", semantic = "", placeId = ""] = (raw || "").split("\u0001");
+  return { name, address, semantic, placeId };
 }
 
 function metaFromVisit(node: Record<string, unknown>, loc: unknown) {
   const top = asRecord(node.topCandidate) || asRecord(node.location) || asRecord(loc);
-  const pools = [top, asRecord(node.location), asRecord(loc)];
+  const pools = [top, asRecord(node.location), asRecord(loc), asRecord(node.placeLocation)];
   if (Array.isArray(node.otherCandidate)) pools.push(...node.otherCandidate.map(asRecord));
   if (Array.isArray(node.otherCandidates)) pools.push(...node.otherCandidates.map(asRecord));
   let name = "";
   let address = "";
   let semantic = "";
+  let placeId = "";
   for (const p of pools) {
     if (!p) continue;
-    if (!name) name = pickStr(p.name, p.placeName, p.candidateName);
-    if (!address) address = pickStr(p.address, p.formattedAddress);
+    const placeLoc = asRecord(p.placeLocation);
+    if (!name) {
+      name = pickStr(
+        p.name,
+        p.placeName,
+        p.candidateName,
+        textOf(p.displayName),
+        placeLoc?.name,
+        textOf(placeLoc?.displayName),
+      );
+    }
+    if (!address) address = pickStr(p.address, p.formattedAddress, p.formatted_address, placeLoc?.address);
     if (!semantic && typeof p.semanticType === "string") semantic = p.semanticType;
+    if (!placeId) placeId = pickId(p.placeId, p.placeID, p.place_id, placeLoc?.placeId, placeLoc?.placeID);
   }
   if (!semantic && typeof node.semanticType === "string") semantic = node.semanticType;
-  return encodeMeta(name, address, semantic);
+  if (!placeId) placeId = pickId(node.placeId, node.placeID);
+  return encodeMeta(name, address, semantic, placeId);
 }
 
 export function extract(data: unknown): Store {
@@ -527,12 +568,33 @@ function lowerBound(samples: Float64Array, t: number) {
   return lo;
 }
 
+function shortAddress(address: string) {
+  const clean = address.replace(/\s+/g, " ").trim();
+  if (!clean) return "";
+  const part = clean.split(",")[0]?.trim() || clean;
+  return part.length > 48 ? `${part.slice(0, 48)}…` : part;
+}
+
+export function mapsHref(lat: number, lng: number, placeId = "") {
+  const q = `${lat.toFixed(6)},${lng.toFixed(6)}`;
+  const base = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(q)}`;
+  return placeId ? `${base}&query_place_id=${encodeURIComponent(placeId)}` : base;
+}
+
 function placeTitle(meta: { name: string; address: string; semantic: string }, atPump: boolean) {
-  if (atPump && !meta.name) return "ปั๊มน้ำมัน";
+  if (atPump && !meta.name && !meta.address) return "ปั๊มน้ำมัน";
   if (meta.name) return meta.name;
-  const sem = SEMANTIC_TH[meta.semantic];
+  const sem = semanticLabel(meta.semantic);
   if (sem) return sem;
+  const addr = shortAddress(meta.address);
+  if (addr) return addr;
   return atPump ? "ปั๊มน้ำมัน" : "สถานที่ไม่มีชื่อ";
+}
+
+const GENERIC_TITLES = new Set(["สถานที่ไม่มีชื่อ", "จุดที่อยู่กับที่"]);
+
+export function stopNeedsName(title: string) {
+  return GENERIC_TITLES.has(title);
 }
 
 export function dayStops(store: Store, key: string, cfg: Cfg): Stop[] {
@@ -552,8 +614,9 @@ export function dayStops(store: Store, key: string, cfg: Cfg): Stop[] {
     const meta = decodeMeta(store.visitMeta[i / 4]);
     const meters = station ? haversine(station.lat, station.lng, lat, lng) : null;
     const atPump = meters != null && meters <= station!.radius;
-    const sem = SEMANTIC_TH[meta.semantic];
-    const detailParts = [meta.address, meta.name && sem ? sem : ""].filter(Boolean);
+    const sem = semanticLabel(meta.semantic);
+    const detailParts = [meta.address, meta.name && sem && meta.name !== sem ? sem : ""].filter(Boolean);
+    if (!detailParts.length) detailParts.push(`${lat.toFixed(5)}, ${lng.toFixed(5)}`);
     stops.push({
       s: cs,
       e: ce,
@@ -564,6 +627,8 @@ export function dayStops(store: Store, key: string, cfg: Cfg): Stop[] {
       atPump,
       meters,
       source: "visit",
+      placeId: meta.placeId,
+      mapsUrl: mapsHref(lat, lng, meta.placeId),
     });
   }
 
@@ -615,6 +680,8 @@ export function dayStops(store: Store, key: string, cfg: Cfg): Stop[] {
       atPump,
       meters,
       source: "gps",
+      placeId: "",
+      mapsUrl: mapsHref(lat, lng),
     });
   }
 
@@ -634,6 +701,104 @@ export function dayStops(store: Store, key: string, cfg: Cfg): Stop[] {
     } else merged.push({ ...s });
   }
   return merged;
+}
+
+const GEO_KEY = "wp-place-names";
+
+function geoKey(lat: number, lng: number) {
+  return `${lat.toFixed(4)},${lng.toFixed(4)}`;
+}
+
+function readGeoCache(): Record<string, string> {
+  try {
+    const raw = JSON.parse(localStorage.getItem(GEO_KEY) || "{}") as unknown;
+    if (!raw || typeof raw !== "object") return {};
+    return raw as Record<string, string>;
+  } catch {
+    return {};
+  }
+}
+
+function labelFromPhoton(data: unknown) {
+  const root = asRecord(data);
+  const features = root && Array.isArray(root.features) ? root.features : [];
+  const props = asRecord(asRecord(features[0])?.properties);
+  if (!props) return "";
+  const parts = [props.name, props.street, props.district, props.city]
+    .map((v) => (typeof v === "string" ? v.trim() : ""))
+    .filter(Boolean);
+  return [...new Set(parts)].slice(0, 2).join(" · ");
+}
+
+function labelFromLocality(data: unknown) {
+  const o = asRecord(data);
+  if (!o) return "";
+  const info = asRecord(o.localityInfo);
+  const rows = Array.isArray(info?.informative) ? info.informative : [];
+  const ranked = rows
+    .map(asRecord)
+    .filter((row): row is Record<string, unknown> => !!row && typeof row.name === "string")
+    .sort((a, b) => Number(b.order || 0) - Number(a.order || 0));
+  const hit = ranked.find((row) => !/ประเทศ|country|ทวีป|continent/i.test(`${row.description || ""} ${row.name}`));
+  const name = typeof hit?.name === "string" ? hit.name : "";
+  const city = typeof o.city === "string" ? o.city : typeof o.locality === "string" ? o.locality : "";
+  if (name && city && city !== name) return `${name} · ${city}`;
+  return name || city || (typeof o.principalSubdivision === "string" ? o.principalSubdivision : "");
+}
+
+async function reverseName(lat: number, lng: number) {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 7000);
+  try {
+    const photon = await fetch(`https://photon.komoot.io/reverse?lat=${lat}&lon=${lng}&lang=th`, { signal: ctrl.signal });
+    if (photon.ok) {
+      const label = labelFromPhoton(await photon.json());
+      if (label) return label;
+    }
+  } catch {
+    /* try the next directory */
+  } finally {
+    clearTimeout(timer);
+  }
+  try {
+    const res = await fetch(
+      `https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=${lat}&longitude=${lng}&localityLanguage=th`,
+    );
+    if (!res.ok) return "";
+    return labelFromLocality(await res.json());
+  } catch {
+    return "";
+  }
+}
+
+/** เติมชื่อสถานที่เมื่อไฟล์ Timeline ไม่มีชื่อ แต่มีพิกัด */
+export async function enrichStops(stops: Stop[]): Promise<Stop[]> {
+  const cache = readGeoCache();
+  const next = stops.map((s) => ({ ...s }));
+  let dirty = false;
+  for (const stop of next) {
+    if (!stopNeedsName(stop.title)) continue;
+    const key = geoKey(stop.lat, stop.lng);
+    let name = cache[key] || "";
+    if (!name) {
+      name = await reverseName(stop.lat, stop.lng);
+      if (name) {
+        cache[key] = name;
+        dirty = true;
+      }
+    }
+    if (name) stop.title = name;
+  }
+  if (dirty) {
+    const keys = Object.keys(cache);
+    const trimmed = keys.length > 500 ? Object.fromEntries(keys.slice(-400).map((k) => [k, cache[k]])) : cache;
+    try {
+      localStorage.setItem(GEO_KEY, JSON.stringify(trimmed));
+    } catch {
+      /* storage full */
+    }
+  }
+  return next;
 }
 
 function overlap(a0: number, a1: number, b0: number, b1: number) {

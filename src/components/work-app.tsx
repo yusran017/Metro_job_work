@@ -16,6 +16,7 @@ import {
   dayInfo,
   dayStops,
   demoStore,
+  enrichStops,
   extract,
   extractPlaces,
   fmtDur,
@@ -30,12 +31,17 @@ import {
   normalizeStore,
   pad,
   saveCfg,
+  stopNeedsName,
   thaiLong,
   thaiMonth,
   thaiShort,
   ymd,
 } from "@/lib/workpulse";
 
+type InstallPrompt = Event & {
+  prompt: () => Promise<void>;
+  userChoice: Promise<{ outcome: string }>;
+};
 type PlaceChip = { label: string; lat: number; lng: number };
 type LeafletNS = {
   map: (el: HTMLElement, opts: object) => MapObj;
@@ -115,6 +121,10 @@ export function WorkApp() {
   const [exporting, setExporting] = useState(false);
   const [jump, setJump] = useState("");
   const [query, setQuery] = useState("");
+  const [installEvt, setInstallEvt] = useState<InstallPrompt | null>(null);
+  const [standalone, setStandalone] = useState(false);
+  const [stops, setStops] = useState<Stop[]>([]);
+  const [naming, setNaming] = useState(false);
   const toastTimer = useRef(0);
   const mapEl = useRef<HTMLDivElement>(null);
   const mapHandle = useRef<{
@@ -132,7 +142,22 @@ export function WorkApp() {
     setToastMsg(msg);
     setToastOn(true);
     window.clearTimeout(toastTimer.current);
-    toastTimer.current = window.setTimeout(() => setToastOn(false), 2400);
+    toastTimer.current = window.setTimeout(() => setToastOn(false), 2800);
+  }
+
+  async function installApp() {
+    if (installEvt) {
+      await installEvt.prompt();
+      const choice = await installEvt.userChoice;
+      if (choice.outcome === "accepted") {
+        setInstallEvt(null);
+        setStandalone(true);
+        toast("ติดตั้งแล้ว ไอคอนปฏิทินอยู่ที่หน้าจอหลัก");
+      }
+      return;
+    }
+    const ios = /iphone|ipad|ipod/i.test(navigator.userAgent);
+    toast(ios ? "บน iPhone กดแชร์ แล้วเลือก เพิ่มไปยังหน้าจอโฮม" : "เปิดเมนู Chrome ⋮ แล้วเลือก ติดตั้งแอป");
   }
 
   useEffect(() => {
@@ -176,6 +201,29 @@ export function WorkApp() {
     document.documentElement.dataset.theme = cfg.theme;
     document.querySelector('meta[name="theme-color"]')?.setAttribute("content", cfg.theme === "dark" ? "#070c18" : "#e7eef8");
   }, [cfg.theme]);
+
+  useEffect(() => {
+    const media = window.matchMedia("(display-mode: standalone)");
+    const sync = () => {
+      setStandalone(media.matches || (navigator as Navigator & { standalone?: boolean }).standalone === true);
+    };
+    sync();
+    media.addEventListener("change", sync);
+    const onPrompt = (event: Event) => {
+      event.preventDefault();
+      setInstallEvt(event as InstallPrompt);
+    };
+    window.addEventListener("beforeinstallprompt", onPrompt);
+    if (import.meta.env.PROD && "serviceWorker" in navigator) {
+      const worker = new URL("sw.js", document.baseURI);
+      const scope = new URL("./", document.baseURI);
+      navigator.serviceWorker.register(worker.href, { scope: scope.href }).catch(() => {});
+    }
+    return () => {
+      media.removeEventListener("change", sync);
+      window.removeEventListener("beforeinstallprompt", onPrompt);
+    };
+  }, []);
 
   useEffect(() => {
     if (sheet !== "set") return;
@@ -369,7 +417,24 @@ export function WorkApp() {
   const showEmpty = booted && (!store || cfg.lat === "");
 
   const activeInfo = selected ? dayInfo(selected, days, store, cfg) : null;
-  const stops = useMemo(() => (store && selected ? dayStops(store, selected, cfg) : []), [store, selected, cfg]);
+  const rawStops = useMemo(() => (store && selected ? dayStops(store, selected, cfg) : []), [store, selected, cfg]);
+  useEffect(() => {
+    let dead = false;
+    setStops(rawStops);
+    if (!rawStops.some((stop) => stopNeedsName(stop.title))) {
+      setNaming(false);
+      return;
+    }
+    setNaming(true);
+    enrichStops(rawStops).then((next) => {
+      if (dead) return;
+      setStops(next);
+      setNaming(false);
+    });
+    return () => {
+      dead = true;
+    };
+  }, [rawStops]);
 
   const cells: Array<{ key?: string; blank?: boolean; day?: number; info?: DayInfo }> = [];
   for (let i = 0; i < startPad; i++) cells.push({ blank: true });
@@ -406,7 +471,7 @@ export function WorkApp() {
   return (
     <>
       <div className="aurora" aria-hidden="true" />
-      <main className="app">
+      <main className="app" aria-hidden={sheet ? true : undefined} style={sheet ? { visibility: "hidden" } : undefined}>
         <header className="top">
           <div className="brand">
             <span className="logo" aria-hidden="true">
@@ -421,6 +486,9 @@ export function WorkApp() {
             </div>
           </div>
           <div className="top-btns">
+            {installEvt && !standalone && (
+              <button type="button" className="pill" onClick={() => void installApp()}>ติดตั้ง</button>
+            )}
             <button type="button" className="pill" onClick={() => { const t = new Date(); setView(new Date(t.getFullYear(), t.getMonth(), 1)); setSelected(ymd(t)); }}>
               วันนี้
             </button>
@@ -541,7 +609,7 @@ export function WorkApp() {
                     </div>
                   </div>
                 )}
-                {(activeInfo.kind === "partial" || activeInfo.kind === "absent") && <Itinerary stops={stops} />}
+                {(activeInfo.kind === "partial" || activeInfo.kind === "absent") && <Itinerary stops={stops} naming={naming} />}
                 {SHIFTS.map((sh) => {
                   const s = activeInfo.shifts[sh.key];
                   const badge = shiftBadge(sh.key, activeInfo);
@@ -561,7 +629,7 @@ export function WorkApp() {
                     </div>
                   );
                 })}
-                {activeInfo.kind !== "partial" && activeInfo.kind !== "absent" && <Itinerary stops={stops} />}
+                {activeInfo.kind !== "partial" && activeInfo.kind !== "absent" && <Itinerary stops={stops} naming={naming} />}
                 <p className="day-note">
                   นับว่าไปทำงานเมื่ออยู่ในรัศมี {cfg.radius} ม. อย่างน้อย {activeInfo.minH} ชั่วโมงในกะนั้น
                   ชั่วโมงรวมคิดจากกะเช้ากับกะบ่าย ไม่บวก Support ซ้ำ
@@ -582,6 +650,13 @@ export function WorkApp() {
             </button>
           </div>
           <div className="panel-body">
+            {!standalone && (
+              <section className="box install-card">
+                <b>ติดตั้งเป็นแอป</b>
+                <p>เปิดลิงก์นี้ใน Chrome บนมือถือ แล้วกดติดตั้ง ไอคอนปฏิทินจะอยู่ที่หน้าจอหลัก และเปิดได้แบบแอป</p>
+                <button type="button" className="primary" onClick={() => void installApp()}>ติดตั้งแอป</button>
+              </section>
+            )}
             <section className="box">
               <h3>ไฟล์ Timeline</h3>
               <label className="drop">
@@ -699,12 +774,13 @@ export function WorkApp() {
   );
 }
 
-function Itinerary({ stops }: { stops: Stop[] }) {
+function Itinerary({ stops, naming }: { stops: Stop[]; naming: boolean }) {
   if (!stops.length) return <p className="day-note">ไม่พบจุดแวะในไฟล์ของวันนี้</p>;
   const away = stops.filter((s) => !s.atPump).length;
   return (
     <section className="itin">
       <h3>ไปที่ไหนบ้าง <small>{stops.length} จุด{away ? ` · นอกปั๊ม ${away}` : ""}</small></h3>
+      {naming && <p className="day-note">กำลังอ่านชื่อสถานที่จากพิกัดในไฟล์ Timeline…</p>}
       <ol>
         {stops.map((s, i) => (
           <li key={`${s.s}-${s.title}-${i}`} className={s.atPump ? "at" : ""}>
@@ -718,6 +794,7 @@ function Itinerary({ stops }: { stops: Stop[] }) {
                 {s.meters != null ? ` · ${fmtMeters(s.meters)}` : ""}
                 {s.source === "gps" ? " · ประมาณจากพิกัด" : ""}
               </em>
+              <a className="maplink" href={s.mapsUrl} target="_blank" rel="noreferrer">เปิดใน Google Maps</a>
             </div>
           </li>
         ))}
