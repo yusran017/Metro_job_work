@@ -1,5 +1,5 @@
-import { a as eachKey, c as keyToDate, d as thaiShort, f as weekdayShort, i as dayStops, l as stopSummary, n as SHIFTS, o as fmtH, r as dayInfo, s as hm, u as thaiMonth } from "./routes-BJmriAeF.mjs";
-//#region node_modules/.nitro/vite/services/ssr/assets/excel-export-BAqOzBTS.js
+import { a as eachKey, c as keyToDate, d as stopSummary, f as thaiMonth, i as dayStops, l as shiftPay, m as weekdayShort, n as SHIFTS, o as fmtH, p as thaiShort, r as dayInfo, s as hm, u as slotLabel } from "./routes-uz9BgQ7B.mjs";
+//#region node_modules/.nitro/vite/services/ssr/assets/excel-export-DFJuY9Ni.js
 var INK = "#1E1B4B";
 var LINE = "#DDD6FE";
 var HEAD = "#4C1D95";
@@ -103,7 +103,8 @@ var SHIFT_FILL = {
 	}
 };
 function statusWord(st) {
-	if (st === "ok") return "ครบเกณฑ์";
+	if (st === "ok") return "เต็มกะ";
+	if (st === "half") return "ครึ่งกะ";
 	if (st === "warn") return "ไม่ครบ";
 	return "ไม่พบ";
 }
@@ -120,11 +121,11 @@ function buildSheets(store, days, cfg) {
 	const worked = infos.filter((i) => i.kind === "worked").length;
 	const partial = infos.filter((i) => i.kind === "partial").length;
 	const absent = infos.filter((i) => i.kind === "absent").length;
-	const off = infos.filter((i) => i.kind === "off").length;
 	const cm = infos.filter((i) => i.shifts.m.st === "ok").length;
 	const ce = infos.filter((i) => i.shifts.e.st === "ok").length;
 	const cs = infos.filter((i) => i.supportOn).length;
-	const hours = infos.reduce((a, i) => a + i.hours, 0);
+	const pay = infos.reduce((a, i) => a + i.pay, 0);
+	const half = infos.filter((i) => i.shifts.m.st === "half" || i.shifts.e.st === "half").length;
 	const byMonth = /* @__PURE__ */ new Map();
 	for (const info of infos) {
 		const mk = info.key.slice(0, 7);
@@ -135,7 +136,7 @@ function buildSheets(store, days, cfg) {
 	const ovCols = 8;
 	const overview = [
 		titleRow("ปฏิทินเข้างาน  ·  ปั๊มน้ำมัน", ovCols),
-		subRow(`ข้อมูล ${thaiShort(store.min)} – ${thaiShort(store.max)}   ·   เกณฑ์ ${cfg.minHours} ชม.   ·   รัศมี ${cfg.radius} ม.   ·   พิกัด ${cfg.lat}, ${cfg.lng}`, ovCols),
+		subRow(`ข้อมูล ${thaiShort(store.min)} – ${thaiShort(store.max)}   ·   เกณฑ์เต็มกะ ${cfg.minHours} ชม.   ·   ครึ่งกะตั้งแต่ 3.5 ชม.   ·   กะละ 337 บาท`, ovCols),
 		blank(ovCols),
 		subRow("สรุปทั้งไฟล์", ovCols, "#5B21B6"),
 		heads([
@@ -143,10 +144,10 @@ function buildSheets(store, days, cfg) {
 			"กะเช้า",
 			"กะบ่าย",
 			"Support",
-			"ชั่วโมงในกะ",
+			"รายได้ (บาท)",
+			"ครึ่งกะ",
 			"ไม่ครบ",
-			"ไม่พบ",
-			"วันหยุด"
+			"ไม่พบ"
 		], HEAD),
 		[
 			num(worked, {
@@ -174,9 +175,16 @@ function buildSheets(store, days, cfg) {
 				fontWeight: "bold",
 				fontSize: 16
 			}),
-			num(hours, {
+			num(pay, {
 				backgroundColor: "#E0F2FE",
 				textColor: "#075985",
+				fontWeight: "bold",
+				fontSize: 16,
+				format: "#,##0.0"
+			}),
+			num(half, {
+				backgroundColor: "#FFEDD5",
+				textColor: "#9A3412",
 				fontWeight: "bold",
 				fontSize: 16
 			}),
@@ -191,25 +199,19 @@ function buildSheets(store, days, cfg) {
 				textColor: "#9F1239",
 				fontWeight: "bold",
 				fontSize: 16
-			}),
-			num(off, {
-				backgroundColor: "#F1F5F9",
-				textColor: "#475569",
-				fontWeight: "bold",
-				fontSize: 16
 			})
 		],
 		blank(ovCols),
-		subRow("สรุปรายเดือน  ·  ชั่วโมงไม่นับ Support ซ้ำกับเช้า/บ่าย", ovCols, "#5B21B6"),
+		subRow("สรุปรายเดือน  ·  รายได้คิดจากกะเช้าและกะบ่าย เต็มกะ 337 บาท ครึ่งกะ 168.5 บาท  Support ไม่บวกเงินซ้ำ", ovCols, "#5B21B6"),
 		heads([
 			"เดือน",
 			"วันทำงาน",
 			"กะเช้า",
 			"กะบ่าย",
 			"Support",
-			"ชั่วโมง",
-			"ไม่ครบ",
-			"ไม่พบ"
+			"รายได้",
+			"ครึ่งกะ",
+			"ไม่ครบ"
 		], "#6D28D9")
 	];
 	let stripe = false;
@@ -225,12 +227,13 @@ function buildSheets(store, days, cfg) {
 			num(list.filter((i) => i.shifts.m.st === "ok").length, { backgroundColor: "#FFFBEB" }),
 			num(list.filter((i) => i.shifts.e.st === "ok").length, { backgroundColor: "#F5F3FF" }),
 			num(list.filter((i) => i.supportOn).length, { backgroundColor: "#ECFEFF" }),
-			num(list.reduce((a, i) => a + i.hours, 0), {
+			num(list.reduce((a, i) => a + i.pay, 0), {
 				backgroundColor: bg,
-				fontWeight: "bold"
+				fontWeight: "bold",
+				format: "#,##0.0"
 			}),
-			num(list.filter((i) => i.kind === "partial").length, { backgroundColor: bg }),
-			num(list.filter((i) => i.kind === "absent").length, { backgroundColor: bg })
+			num(list.filter((i) => i.shifts.m.st === "half" || i.shifts.e.st === "half").length, { backgroundColor: bg }),
+			num(list.filter((i) => i.kind === "partial").length, { backgroundColor: bg })
 		]);
 	}
 	overview.push(blank(ovCols));
@@ -239,15 +242,15 @@ function buildSheets(store, days, cfg) {
 		"วันที่",
 		"วัน",
 		"สถานะ",
-		"เช้า (ชม.)",
-		"บ่าย (ชม.)",
-		"Support (ชม.)",
-		"รวมในกะ",
-		"ผลบนปฏิทิน"
+		"เช้า",
+		"บ่าย",
+		"Support",
+		"รายได้",
+		"บนปฏิทิน"
 	];
 	const basic = [
 		titleRow("เข้างาน  ·  ตารางเบสิค", basicHead.length, "#4C1D95", 16),
-		subRow("หนึ่งแถวต่อหนึ่งวัน  ·  Support แสดงชั่วโมงเสมอ แต่จะขึ้นกรอบบนปฏิทินเมื่อครบเกณฑ์เท่านั้น", basicHead.length),
+		subRow("หนึ่งแถวต่อหนึ่งวัน  ·  เต็มกะ 337 บาท  ·  อยู่ที่ปั๊มตั้งแต่ 3.5 ชั่วโมงแต่ไม่ถึงเกณฑ์เต็มกะ = ครึ่งกะ 168.5 บาท", basicHead.length),
 		heads(basicHead, HEAD)
 	];
 	for (const info of infos) {
@@ -271,26 +274,34 @@ function buildSheets(store, days, cfg) {
 				align: "center",
 				fontWeight: "bold"
 			}),
-			num(info.shifts.m.h, {
-				backgroundColor: info.shifts.m.st === "ok" ? "#FDE68A" : fill.bg,
-				textColor: info.shifts.m.st === "ok" ? "#78350F" : fill.fg,
-				fontWeight: info.shifts.m.st === "ok" ? "bold" : void 0
-			}),
-			num(info.shifts.e.h, {
-				backgroundColor: info.shifts.e.st === "ok" ? "#DDD6FE" : fill.bg,
-				textColor: info.shifts.e.st === "ok" ? "#5B21B6" : fill.fg,
-				fontWeight: info.shifts.e.st === "ok" ? "bold" : void 0
-			}),
-			num(info.shifts.s.h, {
-				backgroundColor: info.supportOn ? "#A5F3FC" : fill.bg,
-				textColor: info.supportOn ? "#155E75" : fill.fg,
-				fontWeight: info.supportOn ? "bold" : void 0
-			}),
-			num(info.hours, {
-				...base,
+			cell(slotLabel("m", info.shifts.m.st) || "—", {
+				backgroundColor: info.shifts.m.st === "ok" || info.shifts.m.st === "half" ? "#FDE68A" : fill.bg,
+				textColor: info.shifts.m.st === "ok" || info.shifts.m.st === "half" ? "#78350F" : fill.fg,
+				align: "center",
 				fontWeight: "bold"
 			}),
-			cell(info.supportOn ? "เช้า · บ่าย · Support" : info.inRange && info.kind !== "off" ? "เช้า · บ่าย" : "—", {
+			cell(slotLabel("e", info.shifts.e.st) || "—", {
+				backgroundColor: info.shifts.e.st === "ok" || info.shifts.e.st === "half" ? "#DDD6FE" : fill.bg,
+				textColor: info.shifts.e.st === "ok" || info.shifts.e.st === "half" ? "#5B21B6" : fill.fg,
+				align: "center",
+				fontWeight: "bold"
+			}),
+			cell(info.supportOn ? "Support" : "—", {
+				backgroundColor: info.supportOn ? "#A5F3FC" : fill.bg,
+				textColor: info.supportOn ? "#155E75" : fill.fg,
+				align: "center",
+				fontWeight: "bold"
+			}),
+			num(info.pay, {
+				...base,
+				fontWeight: "bold",
+				format: "#,##0.0"
+			}),
+			cell([
+				slotLabel("m", info.shifts.m.st),
+				slotLabel("e", info.shifts.e.st),
+				info.supportOn ? "Support" : ""
+			].filter(Boolean).join(" · ") || "—", {
 				...base,
 				align: "center"
 			})
@@ -305,6 +316,7 @@ function buildSheets(store, days, cfg) {
 		"เข้า",
 		"ออก",
 		"ชั่วโมง",
+		"รายได้",
 		"ช่วงย่อย"
 	];
 	const deep = [
@@ -322,9 +334,12 @@ function buildSheets(store, days, cfg) {
 			const stFill = view.st === "ok" ? {
 				bg: "#D1FAE5",
 				fg: "#065F46"
-			} : view.st === "warn" ? {
+			} : view.st === "half" ? {
 				bg: "#FFEDD5",
 				fg: "#9A3412"
+			} : view.st === "warn" ? {
+				bg: "#FEF3C7",
+				fg: "#92400E"
 			} : {
 				bg: zebra,
 				fg: "#64748B"
@@ -365,7 +380,12 @@ function buildSheets(store, days, cfg) {
 				}),
 				num(view.h, {
 					backgroundColor: zebra,
-					fontWeight: view.st === "ok" ? "bold" : void 0
+					...view.st === "ok" || view.st === "half" ? { fontWeight: "bold" } : {}
+				}),
+				num(shiftPay(sh.key, view.st), {
+					backgroundColor: zebra,
+					fontWeight: "bold",
+					format: "#,##0.0"
 				}),
 				cell(view.rec ? view.rec.parts.map(([a, b]) => `${hm(a)}–${hm(b)}`).join(", ") : "—", {
 					backgroundColor: zebra,
@@ -566,9 +586,10 @@ function buildSheets(store, days, cfg) {
 				10,
 				14,
 				18,
-				24,
+				22,
 				10,
 				10,
+				12,
 				12,
 				36
 			].map((width) => ({ width })),
@@ -615,7 +636,41 @@ function buildSheets(store, days, cfg) {
 }
 async function workbookBlob(store, days, cfg) {
 	const writeXlsxFile = (await import("../_libs/write-excel-file.mjs").then((n) => n.t)).default;
-	return writeXlsxFile(buildSheets(store, days, cfg)).toBlob();
+	return writeXlsxFile(buildSheets(store, days, cfg).map((sheet) => ({
+		...sheet,
+		sheet: sheet.sheet.slice(0, 31)
+	}))).toBlob();
+}
+function csvCell(value) {
+	const text = String(value ?? "");
+	if (/[",\r\n]/.test(text)) return `"${text.replace(/"/g, "\"\"")}"`;
+	return text;
+}
+/** CSV แบบ UTF-8 มี BOM ให้ Excel เปิดภาษาไทยได้ ไม่พึ่งตัวสร้าง xlsx */
+function attendanceCsv(store, days, cfg) {
+	const lines = [[
+		"วันที่",
+		"วัน",
+		"สถานะ",
+		"เช้า",
+		"บ่าย",
+		"Support",
+		"รายได้"
+	].map(csvCell).join(",")];
+	for (const key of eachKey(store)) {
+		const info = dayInfo(key, days, store, cfg);
+		const fill = KIND_FILL[info.kind];
+		lines.push([
+			info.key,
+			weekdayShort(info.key),
+			fill.label,
+			slotLabel("m", info.shifts.m.st) || "—",
+			slotLabel("e", info.shifts.e.st) || "—",
+			info.supportOn ? "Support" : "—",
+			info.pay
+		].map(csvCell).join(","));
+	}
+	return `\uFEFF${lines.join("\r\n")}`;
 }
 //#endregion
-export { workbookBlob };
+export { attendanceCsv, workbookBlob };

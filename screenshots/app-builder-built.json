@@ -7,9 +7,9 @@
       "status": 200,
       "title": "ปฏิทินเข้างาน",
       "hasCanvas": false,
-      "bodyTextLen": 1129,
-      "bodyTextHash": "7f67bcba00028028d66855a0c7c438c17148c82b990060df151bf942869fde4c",
-      "bodyTextPrefix": "ปฏิทินเข้างาน ปั๊มน้ำมัน วันนี้ กันยายน 2569 0 วันทำงาน 0 กะเช้า",
+      "bodyTextLen": 1158,
+      "bodyTextHash": "453bdeaa4c39ae588d04af29eaeba38bc166a52168000c68b2e0f297931c193f",
+      "bodyTextPrefix": "ปฏิทินเข้างาน ปั๊มน้ำมัน วันนี้ กันยายน 2569 อา จ อ พ พฤ ศ ส 1 2",
       "horizontalOverflow": false,
       "consoleErrors": [],
       "pageErrors": [],
@@ -21,9 +21,9 @@
       "status": 200,
       "title": "ปฏิทินเข้างาน",
       "hasCanvas": false,
-      "bodyTextLen": 1129,
-      "bodyTextHash": "7f67bcba00028028d66855a0c7c438c17148c82b990060df151bf942869fde4c",
-      "bodyTextPrefix": "ปฏิทินเข้างาน ปั๊มน้ำมัน วันนี้ กันยายน 2569 0 วันทำงาน 0 กะเช้า",
+      "bodyTextLen": 1158,
+      "bodyTextHash": "453bdeaa4c39ae588d04af29eaeba38bc166a52168000c68b2e0f297931c193f",
+      "bodyTextPrefix": "ปฏิทินเข้างาน ปั๊มน้ำมัน วันนี้ กันยายน 2569 อา จ อ พ พฤ ศ ส 1 2",
       "horizontalOverflow": false,
       "consoleErrors": [],
       "pageErrors": [],
@@ -34,9 +34,5 @@
     "BRAND NOTE: no custom public/og.jpg — the platform will serve the og.grok.me placeholder. Custom cards are the default for games of every kind (DOM board/word games included), whimsical apps, creative tools, and brand-forward pages — only plain utilities (converters, CRUD trackers, admin dashboards) keep the placeholder. If this app is not a plain utility, finish the brand-asset pass per /workspace/.grok/skills/og/SKILL.md."
   ],
   "authWarnings": [],
-  "verdictFile": "/workspace/screenshots/app-builder-built.json",
-  "divergesFromBaseline": true,
-  "baselineReasons": [
-    "desktop: body text changed (41 -> 1129 chars, hash mismatch)"
-  ]
+  "verdictFile": "/workspace/screenshots/app-builder-built.json"
 }

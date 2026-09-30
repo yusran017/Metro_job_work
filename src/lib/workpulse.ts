@@ -61,7 +61,7 @@ export type Store = {
 
 export type ShiftRec = { ms: number; first: number; last: number; parts: Array<[number, number]> };
 export type DayRec = Partial<Record<ShiftKey, ShiftRec>>;
-export type ShiftStatus = "ok" | "warn" | "none";
+export type ShiftStatus = "ok" | "half" | "warn" | "none";
 export type DayKind = "out" | "worked" | "off" | "partial" | "absent";
 
 export type ShiftView = { st: ShiftStatus; h: number; rec?: ShiftRec };
@@ -72,6 +72,7 @@ export type DayInfo = {
   shifts: Record<ShiftKey, ShiftView>;
   okCount: number;
   hours: number;
+  pay: number;
   inRange: boolean;
   minH: number;
   supportOn: boolean;
@@ -101,6 +102,29 @@ export const hm = (ms: number) => {
   return `${pad(d.getHours())}:${pad(d.getMinutes())}`;
 };
 export const fmtH = (h: number) => (Math.round(h * 10) / 10).toString();
+export const PAY_FULL = 337;
+export const HALF_MIN_H = 3.5;
+
+export function shiftPay(key: ShiftKey, st: ShiftStatus) {
+  if (key === "s") return 0;
+  if (st === "ok") return PAY_FULL;
+  if (st === "half") return PAY_FULL / 2;
+  return 0;
+}
+
+export function fmtBaht(n: number) {
+  const rounded = Math.round(n * 10) / 10;
+  const text = Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(1);
+  return text.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+}
+
+export function slotLabel(key: ShiftKey, st: ShiftStatus) {
+  if (st === "none") return "";
+  if (st === "warn") return "ไม่ครบ";
+  if (key === "s") return "Support";
+  if (key === "m") return st === "half" ? "½เช้า" : "เช้า";
+  return st === "half" ? "½บ่าย" : "บ่าย";
+}
 export const thaiLong = (k: string) =>
   keyToDate(k).toLocaleDateString("th-TH", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
 export const thaiMonth = (d: Date) => d.toLocaleDateString("th-TH", { month: "long", year: "numeric" });
@@ -520,8 +544,8 @@ export function dayInfo(key: string, days: Map<string, DayRec>, store: Store | n
   for (const sh of SHIFTS) {
     const r = rec[sh.key];
     const h = r ? r.ms / 3600000 : 0;
-    const st: ShiftStatus = h >= minH ? "ok" : h >= MIN_PIECE_H ? "warn" : "none";
-    if (st === "ok") okCount++;
+    const st: ShiftStatus = h >= minH ? "ok" : h + 1e-6 >= HALF_MIN_H ? "half" : h >= MIN_PIECE_H ? "warn" : "none";
+    if (st === "ok" || (st === "half" && sh.key !== "s")) okCount++;
     if (st === "warn") warnAny = true;
     if (r && sh.key !== "s") totalMs += r.ms;
     shifts[sh.key] = r ? { st, h, rec: r } : { st, h };
@@ -534,12 +558,15 @@ export function dayInfo(key: string, days: Map<string, DayRec>, store: Store | n
   else if (warnAny) kind = "partial";
   else kind = "absent";
   const supportOn = inRange && shifts.s.st === "ok";
-  return { key, kind, shifts, okCount, hours: totalMs / 3600000, inRange, minH, supportOn };
+  const pay = shiftPay("m", shifts.m.st) + shiftPay("e", shifts.e.st);
+  return { key, kind, shifts, okCount, hours: totalMs / 3600000, pay, inRange, minH, supportOn };
 }
 
 export function calendarShiftKeys(info: DayInfo): ShiftKey[] {
   if (!info.inRange || info.kind === "off") return [];
-  const keys: ShiftKey[] = ["m", "e"];
+  const keys: ShiftKey[] = [];
+  if (info.shifts.m.st !== "none") keys.push("m");
+  if (info.shifts.e.st !== "none") keys.push("e");
   if (info.supportOn) keys.push("s");
   return keys;
 }
@@ -831,20 +858,24 @@ export function monthStats(days: Map<string, DayRec>, store: Store | null, cfg: 
   let ce = 0;
   let cs = 0;
   let hours = 0;
+  let pay = 0;
+  let half = 0;
   let warn = 0;
   let bad = 0;
   for (let d = 1; d <= dim; d++) {
     const info = dayInfo(`${y}-${pad(m + 1)}-${pad(d)}`, days, store, cfg);
     if (!info.inRange) continue;
     hours += info.hours;
-    if (info.okCount) okDays++;
+    pay += info.pay;
+    if (info.pay > 0) okDays++;
     if (info.shifts.m.st === "ok") cm++;
     if (info.shifts.e.st === "ok") ce++;
+    if (info.shifts.m.st === "half" || info.shifts.e.st === "half") half++;
     if (info.supportOn) cs++;
     if (info.kind === "partial") warn++;
     if (info.kind === "absent") bad++;
   }
-  return { okDays, cm, ce, cs, hours, warn, bad };
+  return { okDays, cm, ce, cs, hours, pay, half, warn, bad };
 }
 
 /** ข้อมูลตัวอย่างให้เห็นกรอบ Support และวันที่ไม่เข้าเงื่อนไข โดยไม่ต้องมีไฟล์ Timeline */
@@ -868,21 +899,24 @@ export function demoStore(now = new Date()): { store: Store; cfg: Cfg } {
   for (let back = 34; back >= 0; back--) {
     const day = new Date(now.getFullYear(), now.getMonth(), now.getDate() - back);
     const mode = day.getDate() % 6;
-    if (mode === 0) add(day, 6, 4, 14, 6, pump, "ปั๊มน้ำมัน", "จุดที่ปักหมุด", "WORK");
+    if (day.getDate() % 10 === 4) {
+      add(day, 14, 0, 18, 12, pump, "ปั๊มน้ำมัน", "ครึ่งกะบ่าย ประมาณ 4 ชั่วโมง", "WORK");
+      add(day, 10, 0, 12, 20, mall, "ห้างสรรพสินค้า", "ก่อนเข้ากะ", "");
+    } else if (mode === 0) add(day, 6, 4, 14, 6, pump, "ปั๊มน้ำมัน", "จุดที่ปักหมุด", "WORK");
     else if (mode === 1) add(day, 13, 56, 22, 4, pump, "ปั๊มน้ำมัน", "จุดที่ปักหมุด", "WORK");
     else if (mode === 2) add(day, 8, 52, 18, 8, pump, "ปั๊มน้ำมัน", "ช่วง Support 09:00–18:00", "WORK");
     else if (mode === 3) {
-      add(day, 6, 12, 9, 36, pump, "ปั๊มน้ำมัน", "อยู่ไม่ครบเกณฑ์", "WORK");
-      add(day, 10, 5, 13, 20, mall, "ห้างสรรพสินค้า", "แวะระหว่างวัน", "");
-      add(day, 14, 0, 16, 15, cafe, "ร้านกาแฟ", "", "");
+      add(day, 6, 0, 10, 5, pump, "ปั๊มน้ำมัน", "ครึ่งกะเช้า ประมาณ 4 ชั่วโมง", "WORK");
+      add(day, 11, 10, 13, 40, mall, "ห้างสรรพสินค้า", "หลังเลิกครึ่งกะ", "");
+      add(day, 15, 0, 16, 20, cafe, "ร้านกาแฟ", "", "");
     } else if (mode === 4) {
       add(day, 0, 10, 8, 40, home, "บ้าน", "", "HOME");
       add(day, 9, 5, 10, 20, market, "ตลาด", "", "");
       add(day, 11, 0, 15, 45, mall, "ห้างสรรพสินค้า", "", "");
       add(day, 16, 30, 23, 40, home, "บ้าน", "", "HOME");
     } else {
-      add(day, 5, 58, 14, 2, pump, "ปั๊มน้ำมัน", "กะเช้า", "WORK");
-      add(day, 18, 30, 20, 10, market, "ตลาดเย็น", "หลังเลิกกะ", "");
+      add(day, 6, 10, 8, 25, pump, "ปั๊มน้ำมัน", "อยู่ไม่ถึง 4 ชั่วโมง", "WORK");
+      add(day, 10, 0, 12, 30, mall, "ห้างสรรพสินค้า", "ออกจากปั๊มก่อนครบครึ่งกะ", "");
     }
   }
   let min = Infinity;

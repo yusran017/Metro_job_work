@@ -20,7 +20,10 @@ import {
   extract,
   extractPlaces,
   fmtDur,
+  fmtBaht,
   fmtH,
+  slotLabel,
+  shiftPay,
   fmtMeters,
   hm,
   kvDel,
@@ -66,40 +69,17 @@ const DAY_OPTS = [
   { v: 0, t: "อา" },
 ];
 
-function SunIcon() {
-  return (
-    <svg viewBox="0 0 24 24" width="10" height="10" fill="currentColor" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-      <circle cx="12" cy="12" r="4" />
-      <path d="M12 2.5v2.2M12 19.3V21.5M2.5 12h2.2M19.3 12H21.5M5 5l1.6 1.6M17.4 17.4 19 19M5 19l1.6-1.6M17.4 6.6 19 5" fill="none" />
-    </svg>
-  );
-}
-function MoonIcon() {
-  return (
-    <svg viewBox="0 0 24 24" width="10" height="10" fill="currentColor" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-      <path d="M12 4.2A6.2 6.2 0 1 0 18.6 15 7.4 7.4 0 0 1 12 4.2z" />
-    </svg>
-  );
-}
-function SupportIcon() {
-  return (
-    <svg viewBox="0 0 24 24" width="10" height="10" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-      <path d="M4 13a8 8 0 0 1 16 0" />
-      <path d="M4 13v3a2 2 0 0 0 2 2h1v-6H6a2 2 0 0 0-2 1zM20 13v3a2 2 0 0 1-2 2h-1v-6h1a2 2 0 0 1 2 1z" />
-    </svg>
-  );
-}
-
 function shiftBadge(key: ShiftKey, info: DayInfo): [string, string] {
   const s = info.shifts[key];
   if (!info.inRange) return ["mute", "ไม่มีข้อมูล"];
   if (key === "s") {
     if (s.st === "ok") return ["ok", "ขึ้นบนปฏิทิน"];
-    if (s.st === "warn") return ["warn", "ไม่ครบ · ซ่อนไว้"];
+    if (s.st === "half" || s.st === "warn") return ["warn", "ไม่ครบ · ซ่อนไว้"];
     return ["none", "ไม่พบ · ซ่อนไว้"];
   }
-  if (s.st === "ok") return ["ok", "ไปทำงาน"];
-  if (s.st === "warn") return ["warn", "ไม่ครบเกณฑ์"];
+  if (s.st === "ok") return ["ok", "เต็มกะ 337 บาท"];
+  if (s.st === "half") return ["half", key === "m" ? "ครึ่งกะเช้า 168.5" : "ครึ่งกะบ่าย 168.5"];
+  if (s.st === "warn") return ["warn", "ไม่ถึงครึ่งกะ"];
   return ["none", "ไม่พบ"];
 }
 
@@ -381,22 +361,39 @@ export function WorkApp() {
     toast("ล้างข้อมูลแล้ว");
   }
 
+  async function saveBlob(blob: Blob, name: string) {
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = name;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+  }
+
   async function exportExcel() {
     if (!store) return;
     setExporting(true);
     try {
-      const { workbookBlob } = await import("@/lib/excel-export");
+      const { workbookBlob, attendanceCsv } = await import("@/lib/excel-export");
       const blob = await workbookBlob(store, days, cfg);
-      const a = document.createElement("a");
       const stamp = ymd(new Date());
-      a.href = URL.createObjectURL(blob);
-      a.download = `เข้างาน-${stamp}.xlsx`;
-      a.click();
-      setTimeout(() => URL.revokeObjectURL(a.href), 4000);
-      toast("ส่งออก Excel แล้ว · 5 ชีตด้านล่าง");
+      await saveBlob(blob, `เข้างาน-${stamp}.xlsx`);
+      await new Promise((r) => setTimeout(r, 400));
+      const csv = new Blob([attendanceCsv(store, days, cfg)], { type: "text/csv;charset=utf-8" });
+      await saveBlob(csv, `เข้างาน-${stamp}.csv`);
+      toast("ส่งออก Excel และ CSV แล้ว");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "ส่งออกไม่ได้");
-      setSheet("set");
+      try {
+        const { attendanceCsv } = await import("@/lib/excel-export");
+        const stamp = ymd(new Date());
+        const csv = new Blob([attendanceCsv(store, days, cfg)], { type: "text/csv;charset=utf-8" });
+        await saveBlob(csv, `เข้างาน-${stamp}.csv`);
+        toast("Excel สร้างไม่ได้ จึงส่ง CSV ให้แทน");
+      } catch (err2) {
+        setError(err2 instanceof Error ? err2.message : err instanceof Error ? err.message : "ส่งออกไม่ได้");
+        setSheet("set");
+      }
     } finally {
       setExporting(false);
     }
@@ -511,14 +508,6 @@ export function WorkApp() {
           </button>
         </div>
 
-        <section className="stats" aria-label="สรุปประจำเดือน">
-          <div className="stat s-days"><b>{stats.okDays}</b><span>วันทำงาน</span></div>
-          <div className="stat s-m"><b>{stats.cm}</b><span>กะเช้า</span></div>
-          <div className="stat s-e"><b>{stats.ce}</b><span>กะบ่าย</span></div>
-          <div className="stat s-s"><b>{stats.cs}</b><span>Support</span></div>
-          <div className="stat s-h"><b>{fmtH(stats.hours)}</b><span>ชั่วโมง</span></div>
-        </section>
-
         <section
           className="cal"
           onTouchStart={(e) => { touch.current = { x: e.touches[0].clientX, y: e.touches[0].clientY }; }}
@@ -544,17 +533,9 @@ export function WorkApp() {
                   {keys.length > 0 && (
                     <div className="slots">
                       {keys.map((k) => {
-                        const sh = SHIFTS.find((s) => s.key === k)!;
                         const st = c.info!.shifts[k].st;
                         return (
-                          <span key={k} className={`slot ${k} ${st}`}>
-                            {st === "none" ? null : (
-                              <>
-                                {k === "m" ? <SunIcon /> : k === "e" ? <MoonIcon /> : <SupportIcon />}
-                                {sh.short}
-                              </>
-                            )}
-                          </span>
+                          <span key={k} className={`slot ${k} ${st}`}>{slotLabel(k, st)}</span>
                         );
                       })}
                     </div>
@@ -576,12 +557,25 @@ export function WorkApp() {
           </div>
         </section>
 
+        <section className="stats" aria-label="สรุปประจำเดือน">
+          <div className="stat s-days"><b>{stats.okDays}</b><span>วันทำงาน</span></div>
+          <div className="stat s-m"><b>{stats.cm}</b><span>กะเช้า</span></div>
+          <div className="stat s-e"><b>{stats.ce}</b><span>กะบ่าย</span></div>
+          <div className="stat s-s"><b>{stats.cs}</b><span>Support</span></div>
+          <div className="stat s-pay"><b>{fmtBaht(stats.pay)}</b><span>รายได้บาท · ครึ่งกะ {stats.half}</span></div>
+        </section>
+
         <footer className="legend">
-          <span className="lg"><i className="dot m" />เช้า 06–14</span>
-          <span className="lg"><i className="dot e" />บ่าย 14–22</span>
-          <span className="lg"><i className="dot s" />Support เมื่อครบ</span>
-          <span className="lg"><i className="dot w" />ไม่ครบ <b>{stats.warn}</b></span>
-          <span className="lg"><i className="dot b" />ไม่พบ <b>{stats.bad}</b></span>
+          <div className="legend-row">
+            <span className="lg"><i className="dot m" />เช้า 337</span>
+            <span className="lg"><i className="dot e" />บ่าย 337</span>
+            <span className="lg"><i className="dot s" />Support</span>
+          </div>
+          <div className="legend-row">
+            <span className="lg"><i className="dot h" />ครึ่งกะ 168.5</span>
+            <span className="lg"><i className="dot w" />ไม่ครบ <b>{stats.warn}</b></span>
+            <span className="lg"><i className="dot b" />ไม่พบ <b>{stats.bad}</b></span>
+          </div>
         </footer>
       </main>
 
@@ -624,7 +618,7 @@ export function WorkApp() {
                       <div className="sc-grid">
                         <div><span>เข้า</span><b>{s.rec ? hm(s.rec.first) : "—"}</b></div>
                         <div><span>ออก</span><b>{s.rec ? hm(s.rec.last) : "—"}</b></div>
-                        <div><span>อยู่ที่ปั๊ม</span><b>{s.rec ? `${fmtH(s.h)} ชม.` : "—"}</b></div>
+                        <div><span>รายได้</span><b>{shiftPay(sh.key, s.st) ? `${fmtBaht(shiftPay(sh.key, s.st))}` : "—"}</b></div>
                       </div>
                       {s.rec && <div className="parts">{s.rec.parts.map(([a, b], i) => <span key={i}>{hm(a)}–{hm(b)}</span>)}</div>}
                       {sh.key === "s" && s.st !== "ok" && <p className="hint">กรอบ Support จะโผล่บนปฏิทินเฉพาะวันที่อยู่ที่ปั๊มช่วง 09:00–18:00 ครบอย่างน้อย {activeInfo.minH} ชั่วโมง</p>}
@@ -633,8 +627,9 @@ export function WorkApp() {
                 })}
                 {activeInfo.kind !== "partial" && activeInfo.kind !== "absent" && <Itinerary stops={stops} naming={naming} />}
                 <p className="day-note">
-                  นับว่าไปทำงานเมื่ออยู่ในรัศมี {cfg.radius} ม. อย่างน้อย {activeInfo.minH} ชั่วโมงในกะนั้น
-                  ชั่วโมงรวมคิดจากกะเช้ากับกะบ่าย ไม่บวก Support ซ้ำ
+                  เต็มกะได้ 337 บาท เมื่ออยู่ที่ปั๊มอย่างน้อย {activeInfo.minH} ชั่วโมงในกะนั้น
+                  ถ้าอยู่ประมาณ 4 ชั่วโมงขึ้นไปแต่ยังไม่ถึงเกณฑ์ ถือเป็นครึ่งกะ ได้ 168.5 บาท
+                  Support ไม่คิดเงินซ้ำ เพราะทับช่วงเช้าและบ่าย
                 </p>
               </>
             )}
@@ -757,11 +752,11 @@ export function WorkApp() {
                   setCfg(next);
                   saveCfg(next);
                 }}>สลับโหมดสว่าง/มืด</button>
-                <button type="button" className="ghost" disabled={!store || exporting} onClick={() => void exportExcel()}>{exporting ? "กำลังสร้างไฟล์…" : "ส่งออก Excel"}</button>
+                <button type="button" className="ghost" disabled={!store || exporting} onClick={() => void exportExcel()}>{exporting ? "กำลังสร้างไฟล์…" : "ส่งออก Excel และ CSV"}</button>
                 <button type="button" className="ghost" onClick={() => void loadDemo()}>โหลดตัวอย่าง</button>
                 <button type="button" className="ghost danger" onClick={() => void wipe()}>ล้างข้อมูล</button>
               </div>
-              <p className="sheet-note">Excel มี 5 ชีต: ภาพรวม · เข้างาน (เบสิค) · รายละเอียดกะ · สถานที่ · ไม่เข้าเงื่อนไข</p>
+              <p className="sheet-note">ได้ไฟล์ Excel 5 ชีต และไฟล์ CSV สำหรับเปิดใน Excel รายได้เต็มกะ 337 บาท ครึ่งกะ 168.5 บาท</p>
             </section>
             {error && <p className="error">{error}</p>}
           </div>

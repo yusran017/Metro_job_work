@@ -1,6 +1,6 @@
 import { i as __toESM } from "../_runtime.mjs";
 import { G as require_jsx_runtime, K as require_react } from "../_libs/@tanstack/react-router+[...].mjs";
-//#region node_modules/.nitro/vite/services/ssr/assets/routes-BJmriAeF.js
+//#region node_modules/.nitro/vite/services/ssr/assets/routes-uz9BgQ7B.js
 var import_react = /* @__PURE__ */ __toESM(require_react());
 var import_jsx_runtime = require_jsx_runtime();
 var __defProp = Object.defineProperty;
@@ -82,6 +82,23 @@ var hm = (ms) => {
 	return `${pad(d.getHours())}:${pad(d.getMinutes())}`;
 };
 var fmtH = (h) => (Math.round(h * 10) / 10).toString();
+function shiftPay(key, st) {
+	if (key === "s") return 0;
+	if (st === "ok") return 337;
+	if (st === "half") return 337 / 2;
+	return 0;
+}
+function fmtBaht(n) {
+	const rounded = Math.round(n * 10) / 10;
+	return (Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(1)).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+}
+function slotLabel(key, st) {
+	if (st === "none") return "";
+	if (st === "warn") return "ไม่ครบ";
+	if (key === "s") return "Support";
+	if (key === "m") return st === "half" ? "½เช้า" : "เช้า";
+	return st === "half" ? "½บ่าย" : "บ่าย";
+}
 var thaiLong = (k) => keyToDate(k).toLocaleDateString("th-TH", {
 	weekday: "long",
 	day: "numeric",
@@ -496,8 +513,8 @@ function dayInfo(key, days, store, cfg, now = /* @__PURE__ */ new Date()) {
 	for (const sh of SHIFTS) {
 		const r = rec[sh.key];
 		const h = r ? r.ms / 36e5 : 0;
-		const st = h >= minH ? "ok" : h >= .25 ? "warn" : "none";
-		if (st === "ok") okCount++;
+		const st = h >= minH ? "ok" : h + 1e-6 >= 3.5 ? "half" : h >= .25 ? "warn" : "none";
+		if (st === "ok" || st === "half" && sh.key !== "s") okCount++;
 		if (st === "warn") warnAny = true;
 		if (r && sh.key !== "s") totalMs += r.ms;
 		shifts[sh.key] = r ? {
@@ -517,12 +534,14 @@ function dayInfo(key, days, store, cfg, now = /* @__PURE__ */ new Date()) {
 	else if (warnAny) kind = "partial";
 	else kind = "absent";
 	const supportOn = inRange && shifts.s.st === "ok";
+	const pay = shiftPay("m", shifts.m.st) + shiftPay("e", shifts.e.st);
 	return {
 		key,
 		kind,
 		shifts,
 		okCount,
 		hours: totalMs / 36e5,
+		pay,
 		inRange,
 		minH,
 		supportOn
@@ -530,7 +549,9 @@ function dayInfo(key, days, store, cfg, now = /* @__PURE__ */ new Date()) {
 }
 function calendarShiftKeys(info) {
 	if (!info.inRange || info.kind === "off") return [];
-	const keys = ["m", "e"];
+	const keys = [];
+	if (info.shifts.m.st !== "none") keys.push("m");
+	if (info.shifts.e.st !== "none") keys.push("e");
 	if (info.supportOn) keys.push("s");
 	return keys;
 }
@@ -792,15 +813,19 @@ function monthStats(days, store, cfg, view) {
 	let ce = 0;
 	let cs = 0;
 	let hours = 0;
+	let pay = 0;
+	let half = 0;
 	let warn = 0;
 	let bad = 0;
 	for (let d = 1; d <= dim; d++) {
 		const info = dayInfo(`${y}-${pad(m + 1)}-${pad(d)}`, days, store, cfg);
 		if (!info.inRange) continue;
 		hours += info.hours;
-		if (info.okCount) okDays++;
+		pay += info.pay;
+		if (info.pay > 0) okDays++;
 		if (info.shifts.m.st === "ok") cm++;
 		if (info.shifts.e.st === "ok") ce++;
+		if (info.shifts.m.st === "half" || info.shifts.e.st === "half") half++;
 		if (info.supportOn) cs++;
 		if (info.kind === "partial") warn++;
 		if (info.kind === "absent") bad++;
@@ -811,6 +836,8 @@ function monthStats(days, store, cfg, view) {
 		ce,
 		cs,
 		hours,
+		pay,
+		half,
 		warn,
 		bad
 	};
@@ -851,21 +878,24 @@ function demoStore(now = /* @__PURE__ */ new Date()) {
 	for (let back = 34; back >= 0; back--) {
 		const day = new Date(now.getFullYear(), now.getMonth(), now.getDate() - back);
 		const mode = day.getDate() % 6;
-		if (mode === 0) add(day, 6, 4, 14, 6, pump, "ปั๊มน้ำมัน", "จุดที่ปักหมุด", "WORK");
+		if (day.getDate() % 10 === 4) {
+			add(day, 14, 0, 18, 12, pump, "ปั๊มน้ำมัน", "ครึ่งกะบ่าย ประมาณ 4 ชั่วโมง", "WORK");
+			add(day, 10, 0, 12, 20, mall, "ห้างสรรพสินค้า", "ก่อนเข้ากะ", "");
+		} else if (mode === 0) add(day, 6, 4, 14, 6, pump, "ปั๊มน้ำมัน", "จุดที่ปักหมุด", "WORK");
 		else if (mode === 1) add(day, 13, 56, 22, 4, pump, "ปั๊มน้ำมัน", "จุดที่ปักหมุด", "WORK");
 		else if (mode === 2) add(day, 8, 52, 18, 8, pump, "ปั๊มน้ำมัน", "ช่วง Support 09:00–18:00", "WORK");
 		else if (mode === 3) {
-			add(day, 6, 12, 9, 36, pump, "ปั๊มน้ำมัน", "อยู่ไม่ครบเกณฑ์", "WORK");
-			add(day, 10, 5, 13, 20, mall, "ห้างสรรพสินค้า", "แวะระหว่างวัน", "");
-			add(day, 14, 0, 16, 15, cafe, "ร้านกาแฟ", "", "");
+			add(day, 6, 0, 10, 5, pump, "ปั๊มน้ำมัน", "ครึ่งกะเช้า ประมาณ 4 ชั่วโมง", "WORK");
+			add(day, 11, 10, 13, 40, mall, "ห้างสรรพสินค้า", "หลังเลิกครึ่งกะ", "");
+			add(day, 15, 0, 16, 20, cafe, "ร้านกาแฟ", "", "");
 		} else if (mode === 4) {
 			add(day, 0, 10, 8, 40, home, "บ้าน", "", "HOME");
 			add(day, 9, 5, 10, 20, market, "ตลาด", "", "");
 			add(day, 11, 0, 15, 45, mall, "ห้างสรรพสินค้า", "", "");
 			add(day, 16, 30, 23, 40, home, "บ้าน", "", "HOME");
 		} else {
-			add(day, 5, 58, 14, 2, pump, "ปั๊มน้ำมัน", "กะเช้า", "WORK");
-			add(day, 18, 30, 20, 10, market, "ตลาดเย็น", "หลังเลิกกะ", "");
+			add(day, 6, 10, 8, 25, pump, "ปั๊มน้ำมัน", "อยู่ไม่ถึง 4 ชั่วโมง", "WORK");
+			add(day, 10, 0, 12, 30, mall, "ห้างสรรพสินค้า", "ออกจากปั๊มก่อนครบครึ่งกะ", "");
 		}
 	}
 	let min = Infinity;
@@ -932,59 +962,17 @@ var DAY_OPTS = [
 		t: "อา"
 	}
 ];
-function SunIcon() {
-	return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("svg", {
-		viewBox: "0 0 24 24",
-		width: "10",
-		height: "10",
-		fill: "currentColor",
-		stroke: "currentColor",
-		strokeWidth: "2",
-		strokeLinecap: "round",
-		children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("circle", {
-			cx: "12",
-			cy: "12",
-			r: "4"
-		}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("path", {
-			d: "M12 2.5v2.2M12 19.3V21.5M2.5 12h2.2M19.3 12H21.5M5 5l1.6 1.6M17.4 17.4 19 19M5 19l1.6-1.6M17.4 6.6 19 5",
-			fill: "none"
-		})]
-	});
-}
-function MoonIcon() {
-	return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("svg", {
-		viewBox: "0 0 24 24",
-		width: "10",
-		height: "10",
-		fill: "currentColor",
-		stroke: "currentColor",
-		strokeWidth: "2",
-		strokeLinecap: "round",
-		children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("path", { d: "M12 4.2A6.2 6.2 0 1 0 18.6 15 7.4 7.4 0 0 1 12 4.2z" })
-	});
-}
-function SupportIcon() {
-	return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("svg", {
-		viewBox: "0 0 24 24",
-		width: "10",
-		height: "10",
-		fill: "none",
-		stroke: "currentColor",
-		strokeWidth: "2",
-		strokeLinecap: "round",
-		children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("path", { d: "M4 13a8 8 0 0 1 16 0" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("path", { d: "M4 13v3a2 2 0 0 0 2 2h1v-6H6a2 2 0 0 0-2 1zM20 13v3a2 2 0 0 1-2 2h-1v-6h1a2 2 0 0 1 2 1z" })]
-	});
-}
 function shiftBadge(key, info) {
 	const s = info.shifts[key];
 	if (!info.inRange) return ["mute", "ไม่มีข้อมูล"];
 	if (key === "s") {
 		if (s.st === "ok") return ["ok", "ขึ้นบนปฏิทิน"];
-		if (s.st === "warn") return ["warn", "ไม่ครบ · ซ่อนไว้"];
+		if (s.st === "half" || s.st === "warn") return ["warn", "ไม่ครบ · ซ่อนไว้"];
 		return ["none", "ไม่พบ · ซ่อนไว้"];
 	}
-	if (s.st === "ok") return ["ok", "ไปทำงาน"];
-	if (s.st === "warn") return ["warn", "ไม่ครบเกณฑ์"];
+	if (s.st === "ok") return ["ok", "เต็มกะ 337 บาท"];
+	if (s.st === "half") return ["half", key === "m" ? "ครึ่งกะเช้า 168.5" : "ครึ่งกะบ่าย 168.5"];
+	if (s.st === "warn") return ["warn", "ไม่ถึงครึ่งกะ"];
 	return ["none", "ไม่พบ"];
 }
 function WorkApp() {
@@ -1281,22 +1269,36 @@ function WorkApp() {
 		setFileInfo("ประมวลผลในเครื่อง ไม่ถูกส่งไปที่ไหน");
 		toast("ล้างข้อมูลแล้ว");
 	}
+	async function saveBlob(blob, name) {
+		const a = document.createElement("a");
+		a.href = URL.createObjectURL(blob);
+		a.download = name;
+		document.body.appendChild(a);
+		a.click();
+		a.remove();
+		setTimeout(() => URL.revokeObjectURL(a.href), 4e3);
+	}
 	async function exportExcel() {
 		if (!store) return;
 		setExporting(true);
 		try {
-			const { workbookBlob } = await import("./excel-export-BAqOzBTS.mjs");
+			const { workbookBlob, attendanceCsv } = await import("./excel-export-DFJuY9Ni.mjs");
 			const blob = await workbookBlob(store, days, cfg);
-			const a = document.createElement("a");
 			const stamp = ymd(/* @__PURE__ */ new Date());
-			a.href = URL.createObjectURL(blob);
-			a.download = `เข้างาน-${stamp}.xlsx`;
-			a.click();
-			setTimeout(() => URL.revokeObjectURL(a.href), 4e3);
-			toast("ส่งออก Excel แล้ว · 5 ชีตด้านล่าง");
+			await saveBlob(blob, `เข้างาน-${stamp}.xlsx`);
+			await new Promise((r) => setTimeout(r, 400));
+			await saveBlob(new Blob([attendanceCsv(store, days, cfg)], { type: "text/csv;charset=utf-8" }), `เข้างาน-${stamp}.csv`);
+			toast("ส่งออก Excel และ CSV แล้ว");
 		} catch (err) {
-			setError(err instanceof Error ? err.message : "ส่งออกไม่ได้");
-			setSheet("set");
+			try {
+				const { attendanceCsv } = await import("./excel-export-DFJuY9Ni.mjs");
+				const stamp = ymd(/* @__PURE__ */ new Date());
+				await saveBlob(new Blob([attendanceCsv(store, days, cfg)], { type: "text/csv;charset=utf-8" }), `เข้างาน-${stamp}.csv`);
+				toast("Excel สร้างไม่ได้ จึงส่ง CSV ให้แทน");
+			} catch (err2) {
+				setError(err2 instanceof Error ? err2.message : err instanceof Error ? err.message : "ส่งออกไม่ได้");
+				setSheet("set");
+			}
 		} finally {
 			setExporting(false);
 		}
@@ -1507,32 +1509,6 @@ function WorkApp() {
 					]
 				}),
 				/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("section", {
-					className: "stats",
-					"aria-label": "สรุปประจำเดือน",
-					children: [
-						/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-							className: "stat s-days",
-							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("b", { children: stats.okDays }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "วันทำงาน" })]
-						}),
-						/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-							className: "stat s-m",
-							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("b", { children: stats.cm }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "กะเช้า" })]
-						}),
-						/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-							className: "stat s-e",
-							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("b", { children: stats.ce }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "กะบ่าย" })]
-						}),
-						/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-							className: "stat s-s",
-							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("b", { children: stats.cs }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "Support" })]
-						}),
-						/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-							className: "stat s-h",
-							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("b", { children: fmtH(stats.hours) }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "ชั่วโมง" })]
-						})
-					]
-				}),
-				/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("section", {
 					className: "cal",
 					onTouchStart: (e) => {
 						touch.current = {
@@ -1591,11 +1567,10 @@ function WorkApp() {
 									}), keys.length > 0 && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
 										className: "slots",
 										children: keys.map((k) => {
-											const sh = SHIFTS.find((s) => s.key === k);
 											const st = c.info.shifts[k].st;
 											return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
 												className: `slot ${k} ${st}`,
-												children: st === "none" ? null : /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [k === "m" ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(SunIcon, {}) : k === "e" ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(MoonIcon, {}) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(SupportIcon, {}), sh.short] })
+												children: slotLabel(k, st)
 											}, k);
 										})
 									})]
@@ -1628,38 +1603,75 @@ function WorkApp() {
 						})
 					})]
 				}),
-				/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("footer", {
-					className: "legend",
+				/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("section", {
+					className: "stats",
+					"aria-label": "สรุปประจำเดือน",
 					children: [
-						/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
-							className: "lg",
-							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("i", { className: "dot m" }), "เช้า 06–14"]
+						/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+							className: "stat s-days",
+							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("b", { children: stats.okDays }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "วันทำงาน" })]
 						}),
-						/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
-							className: "lg",
-							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("i", { className: "dot e" }), "บ่าย 14–22"]
+						/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+							className: "stat s-m",
+							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("b", { children: stats.cm }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "กะเช้า" })]
 						}),
-						/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
-							className: "lg",
-							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("i", { className: "dot s" }), "Support เมื่อครบ"]
+						/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+							className: "stat s-e",
+							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("b", { children: stats.ce }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "กะบ่าย" })]
 						}),
-						/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
-							className: "lg",
-							children: [
-								/* @__PURE__ */ (0, import_jsx_runtime.jsx)("i", { className: "dot w" }),
-								"ไม่ครบ ",
-								/* @__PURE__ */ (0, import_jsx_runtime.jsx)("b", { children: stats.warn })
-							]
+						/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+							className: "stat s-s",
+							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("b", { children: stats.cs }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "Support" })]
 						}),
-						/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
-							className: "lg",
-							children: [
-								/* @__PURE__ */ (0, import_jsx_runtime.jsx)("i", { className: "dot b" }),
-								"ไม่พบ ",
-								/* @__PURE__ */ (0, import_jsx_runtime.jsx)("b", { children: stats.bad })
-							]
+						/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+							className: "stat s-pay",
+							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("b", { children: fmtBaht(stats.pay) }), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { children: ["รายได้บาท · ครึ่งกะ ", stats.half] })]
 						})
 					]
+				}),
+				/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("footer", {
+					className: "legend",
+					children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+						className: "legend-row",
+						children: [
+							/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
+								className: "lg",
+								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("i", { className: "dot m" }), "เช้า 337"]
+							}),
+							/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
+								className: "lg",
+								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("i", { className: "dot e" }), "บ่าย 337"]
+							}),
+							/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
+								className: "lg",
+								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("i", { className: "dot s" }), "Support"]
+							})
+						]
+					}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+						className: "legend-row",
+						children: [
+							/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
+								className: "lg",
+								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("i", { className: "dot h" }), "ครึ่งกะ 168.5"]
+							}),
+							/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
+								className: "lg",
+								children: [
+									/* @__PURE__ */ (0, import_jsx_runtime.jsx)("i", { className: "dot w" }),
+									"ไม่ครบ ",
+									/* @__PURE__ */ (0, import_jsx_runtime.jsx)("b", { children: stats.warn })
+								]
+							}),
+							/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
+								className: "lg",
+								children: [
+									/* @__PURE__ */ (0, import_jsx_runtime.jsx)("i", { className: "dot b" }),
+									"ไม่พบ ",
+									/* @__PURE__ */ (0, import_jsx_runtime.jsx)("b", { children: stats.bad })
+								]
+							})
+						]
+					})]
 				})
 			]
 		}),
@@ -1740,7 +1752,7 @@ function WorkApp() {
 											children: [
 												/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "เข้า" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("b", { children: s.rec ? hm(s.rec.first) : "—" })] }),
 												/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "ออก" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("b", { children: s.rec ? hm(s.rec.last) : "—" })] }),
-												/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "อยู่ที่ปั๊ม" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("b", { children: s.rec ? `${fmtH(s.h)} ชม.` : "—" })] })
+												/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "รายได้" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("b", { children: shiftPay(sh.key, s.st) ? `${fmtBaht(shiftPay(sh.key, s.st))}` : "—" })] })
 											]
 										}),
 										s.rec && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
@@ -1769,11 +1781,9 @@ function WorkApp() {
 							/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("p", {
 								className: "day-note",
 								children: [
-									"นับว่าไปทำงานเมื่ออยู่ในรัศมี ",
-									cfg.radius,
-									" ม. อย่างน้อย ",
+									"เต็มกะได้ 337 บาท เมื่ออยู่ที่ปั๊มอย่างน้อย ",
 									activeInfo.minH,
-									" ชั่วโมงในกะนั้น ชั่วโมงรวมคิดจากกะเช้ากับกะบ่าย ไม่บวก Support ซ้ำ"
+									" ชั่วโมงในกะนั้น ถ้าอยู่ประมาณ 4 ชั่วโมงขึ้นไปแต่ยังไม่ถึงเกณฑ์ ถือเป็นครึ่งกะ ได้ 168.5 บาท Support ไม่คิดเงินซ้ำ เพราะทับช่วงเช้าและบ่าย"
 								]
 							})
 						] })
@@ -2066,7 +2076,7 @@ function WorkApp() {
 												className: "ghost",
 												disabled: !store || exporting,
 												onClick: () => void exportExcel(),
-												children: exporting ? "กำลังสร้างไฟล์…" : "ส่งออก Excel"
+												children: exporting ? "กำลังสร้างไฟล์…" : "ส่งออก Excel และ CSV"
 											}),
 											/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
 												type: "button",
@@ -2084,7 +2094,7 @@ function WorkApp() {
 									}),
 									/* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
 										className: "sheet-note",
-										children: "Excel มี 5 ชีต: ภาพรวม · เข้างาน (เบสิค) · รายละเอียดกะ · สถานที่ · ไม่เข้าเงื่อนไข"
+										children: "ได้ไฟล์ Excel 5 ชีต และไฟล์ CSV สำหรับเปิดใน Excel รายได้เต็มกะ 337 บาท ครึ่งกะ 168.5 บาท"
 									})
 								]
 							}),
@@ -2163,4 +2173,4 @@ function Itinerary({ stops, naming }) {
 var routes_exports = /* @__PURE__ */ __exportAll({ component: () => SplitComponent });
 var SplitComponent = WorkApp;
 //#endregion
-export { eachKey as a, keyToDate as c, thaiShort as d, weekdayShort as f, dayStops as i, stopSummary as l, SHIFTS as n, fmtH as o, dayInfo as r, hm as s, routes_exports as t, thaiMonth as u };
+export { eachKey as a, keyToDate as c, stopSummary as d, thaiMonth as f, dayStops as i, shiftPay as l, weekdayShort as m, SHIFTS as n, fmtH as o, thaiShort as p, dayInfo as r, hm as s, routes_exports as t, slotLabel as u };
