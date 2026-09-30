@@ -528,10 +528,11 @@ export function WorkApp() {
             if (Math.abs(dx) > 60 && Math.abs(dy) < 45) setView(new Date(y, m + (dx < 0 ? 1 : -1), 1));
           }}
         >
-          <div className="dow" aria-hidden="true">
-            <i className="sun">อา</i><i>จ</i><i>อ</i><i>พ</i><i>พฤ</i><i>ศ</i><i className="sat">ส</i>
-          </div>
-          <div className="grid" style={{ ["--rows" as string]: rows }}>
+          <div className="board">
+            <div className="dow" aria-hidden="true">
+              <i className="sun">อา</i><i>จ</i><i>อ</i><i>พ</i><i>พฤ</i><i>ศ</i><i className="sat">ส</i>
+            </div>
+            <div className="grid" style={{ ["--rows" as string]: rows }}>
             {cells.map((c, i) => {
               if (c.blank || !c.info || !c.key) return <div key={`b${i}`} className="cell blank" />;
               const keys = calendarShiftKeys(c.info);
@@ -561,6 +562,7 @@ export function WorkApp() {
                 </button>
               );
             })}
+            </div>
           </div>
           <div className="empty" hidden={!showEmpty}>
             <div className="empty-card">

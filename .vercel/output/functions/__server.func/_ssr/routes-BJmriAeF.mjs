@@ -1,6 +1,6 @@
 import { i as __toESM } from "../_runtime.mjs";
 import { G as require_jsx_runtime, K as require_react } from "../_libs/@tanstack/react-router+[...].mjs";
-//#region node_modules/.nitro/vite/services/ssr/assets/routes-e_w7dEVT.js
+//#region node_modules/.nitro/vite/services/ssr/assets/routes-BJmriAeF.js
 var import_react = /* @__PURE__ */ __toESM(require_react());
 var import_jsx_runtime = require_jsx_runtime();
 var __defProp = Object.defineProperty;
@@ -1285,7 +1285,7 @@ function WorkApp() {
 		if (!store) return;
 		setExporting(true);
 		try {
-			const { workbookBlob } = await import("./excel-export-MkFnxoJm.mjs");
+			const { workbookBlob } = await import("./excel-export-BAqOzBTS.mjs");
 			const blob = await workbookBlob(store, days, cfg);
 			const a = document.createElement("a");
 			const stamp = ymd(/* @__PURE__ */ new Date());
@@ -1545,8 +1545,9 @@ function WorkApp() {
 						const dy = e.changedTouches[0].clientY - touch.current.y;
 						if (Math.abs(dx) > 60 && Math.abs(dy) < 45) setView(new Date(y, m + (dx < 0 ? 1 : -1), 1));
 					},
-					children: [
-						/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+					children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+						className: "board",
+						children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 							className: "dow",
 							"aria-hidden": "true",
 							children: [
@@ -1564,8 +1565,7 @@ function WorkApp() {
 									children: "ส"
 								})
 							]
-						}),
-						/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+						}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
 							className: "grid",
 							style: { ["--rows"]: rows },
 							children: cells.map((c, i) => {
@@ -1601,33 +1601,32 @@ function WorkApp() {
 									})]
 								}, c.key);
 							})
-						}),
-						/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
-							className: "empty",
-							hidden: !showEmpty,
-							children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-								className: "empty-card",
-								children: [
-									/* @__PURE__ */ (0, import_jsx_runtime.jsx)("b", { children: "ยังไม่มีข้อมูลเข้างาน" }),
-									/* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { children: "นำเข้าไฟล์ Timeline แล้วปักหมุดปั๊ม หรือลองด้วยข้อมูลตัวอย่างเพื่อดูกรอบ Support" }),
-									/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-										className: "empty-actions",
-										children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
-											type: "button",
-											className: "primary",
-											onClick: () => setSheet("set"),
-											children: "เปิดการตั้งค่า"
-										}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
-											type: "button",
-											className: "ghost",
-											onClick: () => void loadDemo(),
-											children: "ลองข้อมูลตัวอย่าง"
-										})]
-									})
-								]
-							})
+						})]
+					}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+						className: "empty",
+						hidden: !showEmpty,
+						children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+							className: "empty-card",
+							children: [
+								/* @__PURE__ */ (0, import_jsx_runtime.jsx)("b", { children: "ยังไม่มีข้อมูลเข้างาน" }),
+								/* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { children: "นำเข้าไฟล์ Timeline แล้วปักหมุดปั๊ม หรือลองด้วยข้อมูลตัวอย่างเพื่อดูกรอบ Support" }),
+								/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+									className: "empty-actions",
+									children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+										type: "button",
+										className: "primary",
+										onClick: () => setSheet("set"),
+										children: "เปิดการตั้งค่า"
+									}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+										type: "button",
+										className: "ghost",
+										onClick: () => void loadDemo(),
+										children: "ลองข้อมูลตัวอย่าง"
+									})]
+								})
+							]
 						})
-					]
+					})]
 				}),
 				/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("footer", {
 					className: "legend",
