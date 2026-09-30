@@ -22,7 +22,7 @@ import {
   fmtDur,
   fmtBaht,
   fmtH,
-  slotLabel,
+  calendarLabel,
   shiftPay,
   fmtMeters,
   hm,
@@ -73,13 +73,12 @@ function shiftBadge(key: ShiftKey, info: DayInfo): [string, string] {
   const s = info.shifts[key];
   if (!info.inRange) return ["mute", "ไม่มีข้อมูล"];
   if (key === "s") {
-    if (s.st === "ok") return ["ok", "ขึ้นบนปฏิทิน"];
-    if (s.st === "half" || s.st === "warn") return ["warn", "ไม่ครบ · ซ่อนไว้"];
-    return ["none", "ไม่พบ · ซ่อนไว้"];
+    if (info.supportOn) return ["ok", "เข้าเงื่อนไข"];
+    return ["none", "ไม่นับ Support"];
   }
-  if (s.st === "ok") return ["ok", "เต็มกะ 337 บาท"];
-  if (s.st === "half") return ["half", key === "m" ? "ครึ่งกะเช้า 168.5" : "ครึ่งกะบ่าย 168.5"];
-  if (s.st === "warn") return ["warn", "ไม่ถึงครึ่งกะ"];
+  if (s.st === "ok") return ["ok", "เต็มกะ"];
+  if (s.st === "half") return ["half", key === "m" ? "ครึ่งกะเช้า" : "ครึ่งกะบ่าย"];
+  if (s.st === "warn") return ["warn", "ไม่ครบเกณฑ์"];
   return ["none", "ไม่พบ"];
 }
 
@@ -408,7 +407,7 @@ export function WorkApp() {
   const m = view.getMonth();
   const startPad = new Date(y, m, 1).getDay();
   const dim = new Date(y, m + 1, 0).getDate();
-  const rows = Math.ceil((startPad + dim) / 7);
+  const rows = 6;
   const stats = monthStats(days, store, cfg, new Date(y, m, 1));
   const todayKey = ymd(new Date());
   const showEmpty = booted && (!store || cfg.lat === "");
@@ -439,6 +438,7 @@ export function WorkApp() {
     const key = `${y}-${pad(m + 1)}-${pad(d)}`;
     cells.push({ key, day: d, info: dayInfo(key, days, store, cfg) });
   }
+  while (cells.length < rows * 7) cells.push({ blank: true });
 
   if (!booted) {
     return (
@@ -518,27 +518,26 @@ export function WorkApp() {
           }}
         >
           <div className="board">
-            <div className="dow" aria-hidden="true">
+            <div className="dow">
               <i className="sun">อา</i><i>จ</i><i>อ</i><i>พ</i><i>พฤ</i><i>ศ</i><i className="sat">ส</i>
             </div>
-            <div className="grid" style={{ ["--rows" as string]: rows }}>
+            <div className="grid">
             {cells.map((c, i) => {
               if (c.blank || !c.info || !c.key) return <div key={`b${i}`} className="cell blank" />;
               const keys = calendarShiftKeys(c.info);
-              const triple = keys.length === 3;
-              const cls = ["cell", c.info.kind, c.key === todayKey ? "today" : "", c.key === selected ? "sel" : "", triple ? "triple" : "", keys.length ? "has-slots" : ""].filter(Boolean).join(" ");
+              const cls = ["cell", c.info.kind, c.key === todayKey ? "today" : "", c.key === selected ? "sel" : "", keys.length ? "has-slots" : ""].filter(Boolean).join(" ");
               return (
                 <button key={c.key} type="button" className={cls} onClick={() => openDay(c.key!)} aria-label={`${c.day} ${KIND_LABEL[c.info.kind]}`}>
                   <span className="n">{c.day}</span>
                   {keys.length > 0 && (
-                    <div className="slots">
+                    <span className="slots">
                       {keys.map((k) => {
                         const st = c.info!.shifts[k].st;
                         return (
-                          <span key={k} className={`slot ${k} ${st}`}>{slotLabel(k, st)}</span>
+                          <span key={k} className={`slot ${k} ${st}`}>{calendarLabel(k, st)}</span>
                         );
                       })}
-                    </div>
+                    </span>
                   )}
                 </button>
               );
@@ -562,21 +561,8 @@ export function WorkApp() {
           <div className="stat s-m"><b>{stats.cm}</b><span>กะเช้า</span></div>
           <div className="stat s-e"><b>{stats.ce}</b><span>กะบ่าย</span></div>
           <div className="stat s-s"><b>{stats.cs}</b><span>Support</span></div>
-          <div className="stat s-pay"><b>{fmtBaht(stats.pay)}</b><span>รายได้บาท · ครึ่งกะ {stats.half}</span></div>
+          <div className="stat s-pay"><b>{fmtBaht(stats.pay)}</b><span>รายได้ (บาท)</span></div>
         </section>
-
-        <footer className="legend">
-          <div className="legend-row">
-            <span className="lg"><i className="dot m" />เช้า 337</span>
-            <span className="lg"><i className="dot e" />บ่าย 337</span>
-            <span className="lg"><i className="dot s" />Support</span>
-          </div>
-          <div className="legend-row">
-            <span className="lg"><i className="dot h" />ครึ่งกะ 168.5</span>
-            <span className="lg"><i className="dot w" />ไม่ครบ <b>{stats.warn}</b></span>
-            <span className="lg"><i className="dot b" />ไม่พบ <b>{stats.bad}</b></span>
-          </div>
-        </footer>
       </main>
 
       <div className={`backdrop ${sheet === "day" ? "open" : ""}`} aria-hidden={sheet !== "day"} onClick={(e) => { if (e.target === e.currentTarget) setSheet(null); }}>
@@ -621,7 +607,7 @@ export function WorkApp() {
                         <div><span>รายได้</span><b>{shiftPay(sh.key, s.st) ? `${fmtBaht(shiftPay(sh.key, s.st))}` : "—"}</b></div>
                       </div>
                       {s.rec && <div className="parts">{s.rec.parts.map(([a, b], i) => <span key={i}>{hm(a)}–{hm(b)}</span>)}</div>}
-                      {sh.key === "s" && s.st !== "ok" && <p className="hint">กรอบ Support จะโผล่บนปฏิทินเฉพาะวันที่อยู่ที่ปั๊มช่วง 09:00–18:00 ครบอย่างน้อย {activeInfo.minH} ชั่วโมง</p>}
+                      {sh.key === "s" && !activeInfo.supportOn && <p className="hint">Support นับเมื่อเริ่มราว 09:00 (เผื่อไทม์ไลน์มาก่อนได้ 40 นาที จึงได้ตั้งแต่ 08:20) และอยู่จนเกือบ 18:00 ถ้ามาตั้งแต่ 06:00, 07:00 หรือ 08:00 แล้วอยู่ต่อ จะไม่นับเป็น Support</p>}
                     </div>
                   );
                 })}
@@ -701,11 +687,12 @@ export function WorkApp() {
               <div className="locked">
                 <div className="lk m"><b>กะเช้า</b><span>06:00 – 14:00 น.</span></div>
                 <div className="lk e"><b>กะบ่าย</b><span>14:00 – 22:00 น.</span></div>
-                <div className="lk s"><b>ตำแหน่ง Support</b><span>09:00 – 18:00 น. · โผล่บนปฏิทินเมื่อครบเกณฑ์เท่านั้น วันปกติจะไม่แสดงกรอบนี้</span></div>
+                <div className="lk s"><b>ตำแหน่ง Support</b><span>09:00 – 18:00 น. · แสดงเมื่อเริ่มราว 09:00 และอยู่จนเกือบ 18:00 เท่านั้น</span></div>
               </div>
               <p className="note">
-                <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><rect x="5" y="11" width="14" height="10" rx="3" /><path d="M8 11V8a4 4 0 0 1 8 0v3" /></svg>
-                ถ้าวันนั้นมีสามกรอบ เลขวันจะกลับไปมุมซ้ายบน ถ้ามีแค่เช้ากับบ่าย เลขวันจะใหญ่ตรงกลาง
+                ทุกกะเผื่อมาก่อนเวลาได้ 40 นาที ถ้ายืนยันในไทม์ไลน์ว่าถึงปั๊มก่อนเข้ากะ ช่วงนั้นนับรวมเข้างาน
+                มาตั้งแต่ 06:00, 07:00 หรือ 08:00 แล้วอยู่ต่อ ไม่นับเป็น Support
+                ปฏิทินโชว์เฉพาะกะที่ครบหรือครึ่งกะ เป็นแถบบางด้านล่าง เลขวันอยู่กลางเสมอ ไม่แสดงรายการไม่ครบ
               </p>
               <div className="stepper">
                 <span>นับว่าเข้างานเมื่ออยู่ที่ปั๊มอย่างน้อย</span>

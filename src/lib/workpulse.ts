@@ -60,7 +60,9 @@ export type Store = {
 };
 
 export type ShiftRec = { ms: number; first: number; last: number; parts: Array<[number, number]> };
-export type DayRec = Partial<Record<ShiftKey, ShiftRec>>;
+export type DayRec = Partial<Record<ShiftKey, ShiftRec>> & {
+  span?: { first: number; last: number };
+};
 export type ShiftStatus = "ok" | "half" | "warn" | "none";
 export type DayKind = "out" | "worked" | "off" | "partial" | "absent";
 
@@ -124,6 +126,14 @@ export function slotLabel(key: ShiftKey, st: ShiftStatus) {
   if (key === "s") return "Support";
   if (key === "m") return st === "half" ? "½เช้า" : "เช้า";
   return st === "half" ? "½บ่าย" : "บ่าย";
+}
+
+/** ป้ายสั้นบนปฏิทิน — เฉพาะกะที่ครบหรือครึ่งกะ ไม่โชว์ "ไม่ครบ" */
+export function calendarLabel(key: ShiftKey, st: ShiftStatus) {
+  if (st !== "ok" && st !== "half") return "";
+  if (key === "s") return "ซัพ";
+  if (key === "m") return st === "half" ? "½ช" : "เช้า";
+  return st === "half" ? "½บ" : "บ่าย";
 }
 export const thaiLong = (k: string) =>
   keyToDate(k).toLocaleDateString("th-TH", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
@@ -474,6 +484,14 @@ function stationOf(cfg: Cfg) {
   return { lat, lng, radius: Number(cfg.radius) || 45 };
 }
 
+const EARLY_MS = 40 * 60 * 1000;
+
+function clock(day: Date, h: number, min = 0) {
+  const x = new Date(day);
+  x.setHours(h, min, 0, 0);
+  return x.getTime();
+}
+
 export function analyze(store: Store, cfg: Cfg): Map<string, DayRec> {
   const station = stationOf(cfg);
   const pieces: Array<[number, number]> = [];
@@ -507,22 +525,29 @@ export function analyze(store: Store, cfg: Cfg): Map<string, DayRec> {
     d.setHours(0, 0, 0, 0);
     for (let guard = 0; d.getTime() < e && guard < 8; guard++, d.setDate(d.getDate() + 1)) {
       const key = ymd(d);
+      const day0 = d.getTime();
+      const day1 = day0 + 86400000;
+      const ps = Math.max(s, day0);
+      const pe = Math.min(e, day1);
+      const rec = days.get(key) || {};
+      if (pe > ps) {
+        rec.span = rec.span
+          ? { first: Math.min(rec.span.first, ps), last: Math.max(rec.span.last, pe) }
+          : { first: ps, last: pe };
+      }
       for (const sh of SHIFTS) {
-        const ws = new Date(d);
-        ws.setHours(sh.from, 0, 0, 0);
-        const we = new Date(d);
-        we.setHours(sh.to, 0, 0, 0);
-        const a = Math.max(s, ws.getTime());
-        const b = Math.min(e, we.getTime());
+        const start = clock(d, sh.from) - EARLY_MS;
+        const end = clock(d, sh.to);
+        const a = Math.max(s, start);
+        const b = Math.min(e, end);
         if (b <= a) continue;
-        const rec = days.get(key) || {};
         const r = rec[sh.key] || (rec[sh.key] = { ms: 0, first: a, last: b, parts: [] });
         r.ms += b - a;
         r.first = Math.min(r.first, a);
         r.last = Math.max(r.last, b);
         r.parts.push([a, b]);
-        days.set(key, rec);
       }
+      days.set(key, rec);
     }
   }
   return days;
@@ -541,12 +566,14 @@ export function dayInfo(key: string, days: Map<string, DayRec>, store: Store | n
   let okCount = 0;
   let warnAny = false;
   let totalMs = 0;
+  const supportOk = qualifiesSupport(date, rec.span, rec.s);
   for (const sh of SHIFTS) {
     const r = rec[sh.key];
     const h = r ? r.ms / 3600000 : 0;
-    const st: ShiftStatus = h >= minH ? "ok" : h + 1e-6 >= HALF_MIN_H ? "half" : h >= MIN_PIECE_H ? "warn" : "none";
+    let st: ShiftStatus = h >= minH ? "ok" : h + 1e-6 >= HALF_MIN_H ? "half" : h >= MIN_PIECE_H ? "warn" : "none";
+    if (sh.key === "s") st = supportOk ? "ok" : "none";
     if (st === "ok" || (st === "half" && sh.key !== "s")) okCount++;
-    if (st === "warn") warnAny = true;
+    if (st === "warn" && sh.key !== "s") warnAny = true;
     if (r && sh.key !== "s") totalMs += r.ms;
     shifts[sh.key] = r ? { st, h, rec: r } : { st, h };
   }
@@ -557,7 +584,7 @@ export function dayInfo(key: string, days: Map<string, DayRec>, store: Store | n
   else if (!workDay) kind = "off";
   else if (warnAny) kind = "partial";
   else kind = "absent";
-  const supportOn = inRange && shifts.s.st === "ok";
+  const supportOn = inRange && supportOk;
   const pay = shiftPay("m", shifts.m.st) + shiftPay("e", shifts.e.st);
   return { key, kind, shifts, okCount, hours: totalMs / 3600000, pay, inRange, minH, supportOn };
 }
@@ -565,10 +592,21 @@ export function dayInfo(key: string, days: Map<string, DayRec>, store: Store | n
 export function calendarShiftKeys(info: DayInfo): ShiftKey[] {
   if (!info.inRange || info.kind === "off") return [];
   const keys: ShiftKey[] = [];
-  if (info.shifts.m.st !== "none") keys.push("m");
-  if (info.shifts.e.st !== "none") keys.push("e");
+  if (info.shifts.m.st === "ok" || info.shifts.m.st === "half") keys.push("m");
+  if (info.shifts.e.st === "ok" || info.shifts.e.st === "half") keys.push("e");
   if (info.supportOn) keys.push("s");
   return keys;
+}
+
+function qualifiesSupport(date: Date, span: { first: number; last: number } | undefined, support?: ShiftRec) {
+  if (!span || !support) return false;
+  // มาตั้งแต่ 06:00–08:00 แล้วอยู่ต่อ = กะเช้า ไม่ใช่ Support
+  // เผื่อไทม์ไลน์โผล่ก่อน 09:00 ได้ 40 นาที (08:20) และมาช้าได้ถึง 09:40
+  const earliest = clock(date, 8, 20);
+  const latestStart = clock(date, 9, 40);
+  const almostEnd = clock(date, 17, 30);
+  const hours = support.ms / 3600000;
+  return span.first >= earliest && span.first <= latestStart && span.last >= almostEnd && hours >= 8;
 }
 
 export const KIND_LABEL: Record<DayKind, string> = {
