@@ -1,0 +1,42 @@
+{
+  "url": "http://127.0.0.1:8081/",
+  "viewports": {
+    "desktop": {
+      "width": 1280,
+      "height": 800,
+      "status": 200,
+      "title": "ปฏิทินเข้างาน",
+      "hasCanvas": false,
+      "bodyTextLen": 41,
+      "bodyTextHash": "b76df0e8e5ffda0c88e0fc841b05898b0a8aed617c0424101c48400ca8cd2e06",
+      "bodyTextPrefix": "ปฏิทินเข้างาน ปั๊มน้ำมัน กำลังเปิดปฏิทิน…",
+      "horizontalOverflow": false,
+      "consoleErrors": [],
+      "pageErrors": [],
+      "screenshot": "/workspace/screenshots/app-builder-built.png"
+    },
+    "mobile": {
+      "width": 390,
+      "height": 844,
+      "status": 200,
+      "title": "ปฏิทินเข้างาน",
+      "hasCanvas": false,
+      "bodyTextLen": 1010,
+      "bodyTextHash": "66664b26d5222308d9f8ced8030679974c1851842ca85438d4b4c611e6dd7687",
+      "bodyTextPrefix": "ปฏิทินเข้างาน ปั๊มน้ำมัน วันนี้ กันยายน 2569 0 วันทำงาน 0 กะเช้า",
+      "horizontalOverflow": false,
+      "consoleErrors": [],
+      "pageErrors": [],
+      "screenshot": "/workspace/screenshots/app-builder-built-mobile.png"
+    }
+  },
+  "brandWarnings": [
+    "BRAND NOTE: no custom public/og.jpg — the platform will serve the og.grok.me placeholder. Custom cards are the default for games of every kind (DOM board/word games included), whimsical apps, creative tools, and brand-forward pages — only plain utilities (converters, CRUD trackers, admin dashboards) keep the placeholder. If this app is not a plain utility, finish the brand-asset pass per /workspace/.grok/skills/og/SKILL.md."
+  ],
+  "authWarnings": [],
+  "verdictFile": "/workspace/screenshots/app-builder-built.json",
+  "divergesFromBaseline": true,
+  "baselineReasons": [
+    "desktop: body text collapsed (1010 -> 41 chars)"
+  ]
+}
