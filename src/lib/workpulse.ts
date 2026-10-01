@@ -35,16 +35,21 @@ export type Cfg = {
   lat: string;
   lng: string;
   radius: number;
-  minHours: number;
+  /** ชั่วโมงที่นับว่าเต็มกะ แยกเช้า / บ่าย / Support ค่าปกติ 8 */
+  need: Record<ShiftKey, number>;
   days: number[];
   theme: "dark" | "light";
 };
+
+export const DEFAULT_NEED = 8;
+export const EARLY_MIN = 30;
+export const LEAVE_EARLY_MIN = 20;
 
 export const DEFAULTS: Cfg = {
   lat: "",
   lng: "",
   radius: 45,
-  minHours: 6,
+  need: { m: DEFAULT_NEED, e: DEFAULT_NEED, s: DEFAULT_NEED },
   days: [1, 1, 1, 1, 1, 1, 1],
   theme: "dark",
 };
@@ -66,7 +71,7 @@ export type DayRec = Partial<Record<ShiftKey, ShiftRec>> & {
 export type ShiftStatus = "ok" | "half" | "warn" | "none";
 export type DayKind = "out" | "worked" | "off" | "partial" | "absent";
 
-export type ShiftView = { st: ShiftStatus; h: number; rec?: ShiftRec };
+export type ShiftView = { st: ShiftStatus; h: number; need: number; rec?: ShiftRec };
 
 export type DayInfo = {
   key: string;
@@ -76,7 +81,6 @@ export type DayInfo = {
   hours: number;
   pay: number;
   inRange: boolean;
-  minH: number;
   supportOn: boolean;
 };
 
@@ -170,25 +174,24 @@ export function haversine(aLat: number, aLng: number, bLat: number, bLng: number
 export function loadCfg(): Cfg {
   try {
     const raw = JSON.parse(localStorage.getItem(LS) || "null") as Partial<Cfg> | null;
-    if (raw) return { ...DEFAULTS, ...raw, days: Array.isArray(raw.days) ? raw.days : DEFAULTS.days };
+    if (raw) return normalizeCfg({ ...DEFAULTS, ...raw, days: Array.isArray(raw.days) ? raw.days : DEFAULTS.days });
     const old = JSON.parse(localStorage.getItem("workpulse-v2") || localStorage.getItem("workpulse-gas") || "null") as
       | Partial<Cfg>
       | null;
     if (old) {
-      return {
+      return normalizeCfg({
         ...DEFAULTS,
         lat: old.lat || "",
         lng: old.lng || "",
         radius: Number(old.radius) || 45,
-        minHours: clampHours(Number(old.minHours) || 6),
         days: Array.isArray(old.days) ? old.days : DEFAULTS.days,
         theme: old.theme === "light" ? "light" : "dark",
-      };
+      });
     }
   } catch {
     /* ignore broken storage */
   }
-  return { ...DEFAULTS, days: [...DEFAULTS.days] };
+  return normalizeCfg(DEFAULTS);
 }
 
 export function saveCfg(cfg: Cfg) {
@@ -199,8 +202,31 @@ export function saveCfg(cfg: Cfg) {
   }
 }
 
-export function clampHours(n: number) {
-  return Math.max(6, Math.min(8, Math.round(n * 2) / 2 || 6));
+export function clampNeed(n: number) {
+  const v = Math.round(Number(n));
+  if (!Number.isFinite(v)) return DEFAULT_NEED;
+  return Math.max(4, Math.min(12, v));
+}
+
+export function normalizeCfg(cfg: Cfg): Cfg {
+  const need = cfg.need || DEFAULTS.need;
+  return {
+    ...DEFAULTS,
+    ...cfg,
+    radius: Number(cfg.radius) || 45,
+    need: { m: clampNeed(need.m), e: clampNeed(need.e), s: clampNeed(need.s) },
+    days: Array.isArray(cfg.days) && cfg.days.length === 7 ? cfg.days : [...DEFAULTS.days],
+    theme: cfg.theme === "light" ? "light" : "dark",
+  };
+}
+
+export function needOf(cfg: Cfg, key: ShiftKey) {
+  return clampNeed(cfg.need?.[key] ?? DEFAULT_NEED);
+}
+
+/** เต็มกะเมื่ออยู่ครบชั่วโมงที่ตั้ง ลบด้วยการกลับก่อน 20 นาที */
+export function fullAtHours(need: number) {
+  return Math.max(HALF_MIN_H, need - LEAVE_EARLY_MIN / 60);
 }
 
 const idb = () =>
@@ -484,7 +510,7 @@ function stationOf(cfg: Cfg) {
   return { lat, lng, radius: Number(cfg.radius) || 45 };
 }
 
-const EARLY_MS = 40 * 60 * 1000;
+const EARLY_MS = EARLY_MIN * 60 * 1000;
 
 function clock(day: Date, h: number, min = 0) {
   const x = new Date(day);
@@ -554,7 +580,6 @@ export function analyze(store: Store, cfg: Cfg): Map<string, DayRec> {
 }
 
 export function dayInfo(key: string, days: Map<string, DayRec>, store: Store | null, cfg: Cfg, now = new Date()): DayInfo {
-  const minH = clampHours(Number(cfg.minHours) || 6);
   const rec = days.get(key) || {};
   const date = keyToDate(key);
   const todayKey = ymd(now);
@@ -566,16 +591,18 @@ export function dayInfo(key: string, days: Map<string, DayRec>, store: Store | n
   let okCount = 0;
   let warnAny = false;
   let totalMs = 0;
-  const supportOk = qualifiesSupport(date, rec.span, rec.s);
+  const supportOk = qualifiesSupport(date, rec.span, rec.s, needOf(cfg, "s"));
   for (const sh of SHIFTS) {
     const r = rec[sh.key];
     const h = r ? r.ms / 3600000 : 0;
-    let st: ShiftStatus = h >= minH ? "ok" : h + 1e-6 >= HALF_MIN_H ? "half" : h >= MIN_PIECE_H ? "warn" : "none";
+    const need = needOf(cfg, sh.key);
+    const fullAt = fullAtHours(need);
+    let st: ShiftStatus = h + 1e-9 >= fullAt ? "ok" : h + 1e-6 >= HALF_MIN_H ? "half" : h >= MIN_PIECE_H ? "warn" : "none";
     if (sh.key === "s") st = supportOk ? "ok" : "none";
     if (st === "ok" || (st === "half" && sh.key !== "s")) okCount++;
     if (st === "warn" && sh.key !== "s") warnAny = true;
     if (r && sh.key !== "s") totalMs += r.ms;
-    shifts[sh.key] = r ? { st, h, rec: r } : { st, h };
+    shifts[sh.key] = r ? { st, h, need, rec: r } : { st, h, need };
   }
   const workDay = !!cfg.days[date.getDay()];
   let kind: DayKind;
@@ -586,7 +613,7 @@ export function dayInfo(key: string, days: Map<string, DayRec>, store: Store | n
   else kind = "absent";
   const supportOn = inRange && supportOk;
   const pay = shiftPay("m", shifts.m.st) + shiftPay("e", shifts.e.st);
-  return { key, kind, shifts, okCount, hours: totalMs / 3600000, pay, inRange, minH, supportOn };
+  return { key, kind, shifts, okCount, hours: totalMs / 3600000, pay, inRange, supportOn };
 }
 
 export function calendarShiftKeys(info: DayInfo): ShiftKey[] {
@@ -598,15 +625,12 @@ export function calendarShiftKeys(info: DayInfo): ShiftKey[] {
   return keys;
 }
 
-function qualifiesSupport(date: Date, span: { first: number; last: number } | undefined, support?: ShiftRec) {
+function qualifiesSupport(date: Date, span: { first: number; last: number } | undefined, support: ShiftRec | undefined, needHours: number) {
   if (!span || !support) return false;
-  // มาตั้งแต่ 06:00–08:00 แล้วอยู่ต่อ = กะเช้า ไม่ใช่ Support
-  // เผื่อไทม์ไลน์โผล่ก่อน 09:00 ได้ 40 นาที (08:20) และมาช้าได้ถึง 09:40
-  const earliest = clock(date, 8, 20);
-  const latestStart = clock(date, 9, 40);
-  const almostEnd = clock(date, 17, 30);
+  // มาก่อน 08:30 คือเข้ากะเช้า ไม่ใช่ตำแหน่ง Support
+  if (span.first < clock(date, 8, 30)) return false;
   const hours = support.ms / 3600000;
-  return span.first >= earliest && span.first <= latestStart && span.last >= almostEnd && hours >= 8;
+  return hours + 1e-9 >= fullAtHours(needHours);
 }
 
 export const KIND_LABEL: Record<DayKind, string> = {
@@ -973,6 +997,6 @@ export function demoStore(now = new Date()): { store: Store; cfg: Cfg } {
       count: visits.length / 4,
       name: "ข้อมูลตัวอย่าง",
     },
-    cfg: { ...DEFAULTS, lat: pump.lat.toFixed(6), lng: pump.lng.toFixed(6), radius: 80, minHours: 6, days: [1, 1, 1, 1, 1, 1, 1] },
+    cfg: { ...DEFAULTS, lat: pump.lat.toFixed(6), lng: pump.lng.toFixed(6), radius: 80, need: { m: 8, e: 8, s: 8 }, days: [1, 1, 1, 1, 1, 1, 1] },
   };
 }

@@ -12,7 +12,7 @@ import {
   SHIFTS,
   analyze,
   calendarShiftKeys,
-  clampHours,
+  clampNeed,
   dayInfo,
   dayStops,
   demoStore,
@@ -31,6 +31,7 @@ import {
   kvSet,
   loadCfg,
   monthStats,
+  normalizeCfg,
   normalizeStore,
   pad,
   saveCfg,
@@ -99,7 +100,6 @@ export function WorkApp() {
   const [mapOff, setMapOff] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [jump, setJump] = useState("");
-  const [query, setQuery] = useState("");
   const [installEvt, setInstallEvt] = useState<InstallPrompt | null>(null);
   const [standalone, setStandalone] = useState(false);
   const [stops, setStops] = useState<Stop[]>([]);
@@ -266,23 +266,6 @@ export function WorkApp() {
     if (pan) handle.map.setView(ll, 17);
   }
 
-  async function searchPlace(q: string) {
-    const text = q.trim();
-    if (!text) return;
-    try {
-      const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(text)}`);
-      const data = (await res.json()) as Array<{ lat: string; lon: string }>;
-      if (!data[0]) {
-        setError("ไม่พบสถานที่ที่ค้นหา");
-        return;
-      }
-      setError("");
-      pin(+data[0].lat, +data[0].lon);
-    } catch {
-      setError("ค้นหาไม่ได้ ตรวจสอบอินเทอร์เน็ตหรือใส่พิกัดเอง");
-    }
-  }
-
   function patch(partial: Partial<Cfg>) {
     setCfg((c) => ({ ...c, ...partial }));
   }
@@ -301,7 +284,7 @@ export function WorkApp() {
       setFileInfo(`${next.count.toLocaleString("th-TH")} รายการ · ${thaiShort(next.min)} – ${thaiShort(next.max)}`);
       setPlaces(extractPlaces(data));
       if (cfgRef.current.lat && cfgRef.current.lng) {
-        const applied = { ...cfgRef.current, minHours: clampHours(cfgRef.current.minHours) };
+        const applied = normalizeCfg(cfgRef.current);
         setDays(analyze(next, applied));
         saveCfg(applied);
         toast("อ่านไฟล์และประมวลผลแล้ว");
@@ -323,7 +306,7 @@ export function WorkApp() {
       setError("ปักหมุดจุดปั๊มบนแผนที่ หรือใส่ละติจูด/ลองจิจูดก่อน");
       return;
     }
-    const next = { ...cfg, minHours: clampHours(cfg.minHours), radius: Number(cfg.radius) || 45 };
+    const next = normalizeCfg(cfg);
     setCfg(next);
     saveCfg(next);
     setDays(analyze(store, next));
@@ -407,7 +390,7 @@ export function WorkApp() {
   const m = view.getMonth();
   const startPad = new Date(y, m, 1).getDay();
   const dim = new Date(y, m + 1, 0).getDate();
-  const rows = 6;
+  const rows = Math.ceil((startPad + dim) / 7);
   const stats = monthStats(days, store, cfg, new Date(y, m, 1));
   const todayKey = ymd(new Date());
   const showEmpty = booted && (!store || cfg.lat === "");
@@ -454,8 +437,8 @@ export function WorkApp() {
                 </svg>
               </span>
               <div className="brand-text">
-                <b>ปฏิทินเข้างาน</b>
-                <small>ปั๊มน้ำมัน</small>
+                <b>กะปั๊ม</b>
+                <small>ปฏิทินเข้ากะ</small>
               </div>
             </div>
           </header>
@@ -478,8 +461,8 @@ export function WorkApp() {
               </svg>
             </span>
             <div className="brand-text">
-              <b>ปฏิทินเข้างาน</b>
-              <small>ปั๊มน้ำมัน</small>
+              <b>กะปั๊ม</b>
+              <small>ปฏิทินเข้ากะ</small>
             </div>
           </div>
           <div className="top-btns">
@@ -521,7 +504,7 @@ export function WorkApp() {
             <div className="dow">
               <i className="sun">อา</i><i>จ</i><i>อ</i><i>พ</i><i>พฤ</i><i>ศ</i><i className="sat">ส</i>
             </div>
-            <div className="grid">
+            <div className="grid" style={{ ["--weeks" as string]: String(rows) }}>
             {cells.map((c, i) => {
               if (c.blank || !c.info || !c.key) return <div key={`b${i}`} className="cell blank" />;
               const keys = calendarShiftKeys(c.info);
@@ -582,11 +565,11 @@ export function WorkApp() {
               <>
                 {(activeInfo.kind === "partial" || activeInfo.kind === "absent") && (
                   <div className={`callout ${activeInfo.kind}`}>
-                    <b>{activeInfo.kind === "absent" ? "วันนี้ไม่เข้างานที่ปั๊ม" : `อยู่ที่ปั๊มไม่ครบ ${activeInfo.minH} ชั่วโมง`}</b>
+                    <b>{activeInfo.kind === "absent" ? "วันนี้ไม่เข้างานที่ปั๊ม" : "อยู่ที่ปั๊มไม่ครบชั่วโมงของกะ"}</b>
                     <p>ด้านล่างคือที่ที่ไปในวันนี้ ทั้งจุดที่อยู่ในไฟล์ Timeline และจุดที่อยู่กับที่จากพิกัด</p>
                     <div className="shortfalls">
                       {SHIFTS.map((sh) => (
-                        <span key={sh.key}>{sh.short} {fmtH(activeInfo.shifts[sh.key].h)}/{activeInfo.minH} ชม.</span>
+                        <span key={sh.key}>{sh.short} {fmtH(activeInfo.shifts[sh.key].h)}/{activeInfo.shifts[sh.key].need} ชม.</span>
                       ))}
                     </div>
                   </div>
@@ -607,15 +590,15 @@ export function WorkApp() {
                         <div><span>รายได้</span><b>{shiftPay(sh.key, s.st) ? `${fmtBaht(shiftPay(sh.key, s.st))}` : "—"}</b></div>
                       </div>
                       {s.rec && <div className="parts">{s.rec.parts.map(([a, b], i) => <span key={i}>{hm(a)}–{hm(b)}</span>)}</div>}
-                      {sh.key === "s" && !activeInfo.supportOn && <p className="hint">Support นับเมื่อเริ่มราว 09:00 (เผื่อไทม์ไลน์มาก่อนได้ 40 นาที จึงได้ตั้งแต่ 08:20) และอยู่จนเกือบ 18:00 ถ้ามาตั้งแต่ 06:00, 07:00 หรือ 08:00 แล้วอยู่ต่อ จะไม่นับเป็น Support</p>}
+                      {sh.key === "s" && !activeInfo.supportOn && <p className="hint">Support อยู่ในกรอบ 09:00–18:00 นับ {s.need} ชั่วโมง เพราะมีพัก 1 ชั่วโมงในกรอบนี้ เผื่อมาก่อนได้ 30 นาที (ตั้งแต่ 08:30) และกลับก่อนได้ 20 นาที ถ้ามาตั้งแต่ก่อน 08:30 จะนับเป็นกะเช้า ไม่ใช่ Support</p>}
                     </div>
                   );
                 })}
                 {activeInfo.kind !== "partial" && activeInfo.kind !== "absent" && <Itinerary stops={stops} naming={naming} />}
                 <p className="day-note">
-                  เต็มกะได้ 337 บาท เมื่ออยู่ที่ปั๊มอย่างน้อย {activeInfo.minH} ชั่วโมงในกะนั้น
+                  เต็มกะคิดจากชั่วโมงที่ตั้งไว้ แต่ละกะ ปกติ 8 ชั่วโมง กลับก่อนได้ 20 นาทีแล้วยังนับครบ ได้ 337 บาท
                   ถ้าอยู่ประมาณ 4 ชั่วโมงขึ้นไปแต่ยังไม่ถึงเกณฑ์ ถือเป็นครึ่งกะ ได้ 168.5 บาท
-                  Support ไม่คิดเงินซ้ำ เพราะทับช่วงเช้าและบ่าย
+                  Support ไม่คิดเงินซ้ำ
                 </p>
               </>
             )}
@@ -636,7 +619,7 @@ export function WorkApp() {
             {!standalone && (
               <section className="box install-card">
                 <b>ติดตั้งเป็นแอป</b>
-                <p>เปิดลิงก์นี้ใน Chrome บนมือถือ แล้วกดติดตั้ง ไอคอนปฏิทินจะอยู่ที่หน้าจอหลัก และเปิดได้แบบแอป</p>
+                <p>เปิดลิงก์นี้ใน Chrome บนมือถือ แล้วกดติดตั้ง ไอคอนกะปั๊มจะอยู่ที่หน้าจอหลัก และเปิดได้แบบแอป</p>
                 <button type="button" className="primary" onClick={() => void installApp()}>ติดตั้งแอป</button>
               </section>
             )}
@@ -651,10 +634,6 @@ export function WorkApp() {
 
             <section className="box">
               <h3>จุดปั๊ม</h3>
-              <div className="row">
-                <input type="search" placeholder="ค้นหาชื่อปั๊ม" value={query} onChange={(e) => setQuery(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") void searchPlace(query); }} />
-                <button type="button" className="ghost" onClick={() => void searchPlace(query)}>ค้นหา</button>
-              </div>
               <div className="row two">
                 <input type="number" step="any" inputMode="decimal" placeholder="ละติจูด" value={cfg.lat} onChange={(e) => patch({ lat: e.target.value })} onBlur={() => {
                   const lat = parseFloat(cfg.lat); const lng = parseFloat(cfg.lng);
@@ -687,21 +666,23 @@ export function WorkApp() {
               <div className="locked">
                 <div className="lk m"><b>กะเช้า</b><span>06:00 – 14:00 น.</span></div>
                 <div className="lk e"><b>กะบ่าย</b><span>14:00 – 22:00 น.</span></div>
-                <div className="lk s"><b>ตำแหน่ง Support</b><span>09:00 – 18:00 น. · แสดงเมื่อเริ่มราว 09:00 และอยู่จนเกือบ 18:00 เท่านั้น</span></div>
+                <div className="lk s"><b>ตำแหน่ง Support</b><span>09:00 – 18:00 น. · ทำงาน 8 ชั่วโมง มีพัก 1 ชั่วโมงในกรอบนี้</span></div>
               </div>
               <p className="note">
-                ทุกกะเผื่อมาก่อนเวลาได้ 40 นาที ถ้ายืนยันในไทม์ไลน์ว่าถึงปั๊มก่อนเข้ากะ ช่วงนั้นนับรวมเข้างาน
-                มาตั้งแต่ 06:00, 07:00 หรือ 08:00 แล้วอยู่ต่อ ไม่นับเป็น Support
-                ปฏิทินโชว์เฉพาะกะที่ครบหรือครึ่งกะ เป็นแถบบางด้านล่าง เลขวันอยู่กลางเสมอ ไม่แสดงรายการไม่ครบ
+                ทุกกะเผื่อมาก่อน 30 นาทีถ้าอยู่บริเวณปั๊ม และกลับก่อนได้ 20 นาทียังนับว่าครบ
+                ถ้าสิ้นเดือนบางกะลดเหลือ 7 ชั่วโมง หรืออยากเพิ่มชั่วโมง ให้ปรับที่กะนั้นด้านล่าง
+                มาตั้งแต่ก่อน 08:30 แล้วอยู่ต่อ จะไม่นับเป็น Support
               </p>
-              <div className="stepper">
-                <span>นับว่าเข้างานเมื่ออยู่ที่ปั๊มอย่างน้อย</span>
-                <div className="step-ctl">
-                  <button type="button" className="step" aria-label="ลดชั่วโมง" onClick={() => patch({ minHours: clampHours(cfg.minHours - 0.5) })}>−</button>
-                  <b>{cfg.minHours}</b><small>ชม.</small>
-                  <button type="button" className="step" aria-label="เพิ่มชั่วโมง" onClick={() => patch({ minHours: clampHours(cfg.minHours + 0.5) })}>+</button>
+              {SHIFTS.map((sh) => (
+                <div className="stepper" key={sh.key}>
+                  <span>ชั่วโมง{sh.key === "s" ? " Support" : sh.label}</span>
+                  <div className="step-ctl">
+                    <button type="button" className="step" aria-label={`ลดชั่วโมง${sh.label}`} onClick={() => patch({ need: { ...cfg.need, [sh.key]: clampNeed(cfg.need[sh.key] - 1) } })}>−</button>
+                    <b>{cfg.need[sh.key]}</b><small>ชม.</small>
+                    <button type="button" className="step" aria-label={`เพิ่มชั่วโมง${sh.label}`} onClick={() => patch({ need: { ...cfg.need, [sh.key]: clampNeed(cfg.need[sh.key] + 1) } })}>+</button>
+                  </div>
                 </div>
-              </div>
+              ))}
               <div className="days-title">วันทำงานในสัปดาห์</div>
               <div className="days">
                 {DAY_OPTS.map((d) => (

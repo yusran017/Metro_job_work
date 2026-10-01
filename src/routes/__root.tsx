@@ -8,11 +8,11 @@ export const Route = createRootRoute({
     meta: [
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1, viewport-fit=cover" },
-      { title: "ปฏิทินเข้างาน" },
+      { title: "กะปั๊ม" },
       { name: "theme-color", content: "#070c18" },
       { name: "apple-mobile-web-app-capable", content: "yes" },
       { name: "mobile-web-app-capable", content: "yes" },
-      { name: "apple-mobile-web-app-title", content: "เข้างาน" },
+      { name: "apple-mobile-web-app-title", content: "กะปั๊ม" },
     ],
     links: [
       { rel: "icon", type: "image/svg+xml", href: "/favicon.svg" },

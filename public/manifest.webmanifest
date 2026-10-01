@@ -1,7 +1,7 @@
 {
-  "name": "ปฏิทินเข้างาน",
-  "short_name": "เข้างาน",
-  "description": "ปฏิทินเข้างานปั๊มน้ำมันจาก Google Timeline",
+  "name": "กะปั๊ม",
+  "short_name": "กะปั๊ม",
+  "description": "ปฏิทินเข้ากะปั๊มน้ำมัน จาก Google Timeline",
   "id": "./",
   "start_url": "./",
   "scope": "./",

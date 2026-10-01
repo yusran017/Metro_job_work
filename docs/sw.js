@@ -1,4 +1,4 @@
-const CACHE = "workpulse-v4";
+const CACHE = "kapump-v1";
 
 self.addEventListener("install", (event) => {
   self.skipWaiting();

@@ -148,9 +148,9 @@ export function buildSheets(store: Store, days: Map<string, DayRec>, cfg: Cfg): 
 
   const ovCols = 8;
   const overview: SheetData = [
-    titleRow("ปฏิทินเข้างาน  ·  ปั๊มน้ำมัน", ovCols),
+    titleRow("กะปั๊ม  ·  ปฏิทินเข้ากะ", ovCols),
     subRow(
-      `ข้อมูล ${thaiShort(store.min)} – ${thaiShort(store.max)}   ·   เกณฑ์เต็มกะ ${cfg.minHours} ชม.   ·   ครึ่งกะตั้งแต่ ${3.5} ชม.   ·   กะละ 337 บาท`,
+      `ข้อมูล ${thaiShort(store.min)} – ${thaiShort(store.max)}   ·   เช้า ${cfg.need.m} ชม. · บ่าย ${cfg.need.e} ชม. · Support ${cfg.need.s} ชม.   ·   เผื่อก่อน 30 นาที กลับก่อนได้ 20 นาที   ·   กะละ 337 บาท`,
       ovCols,
     ),
     blank(ovCols),
